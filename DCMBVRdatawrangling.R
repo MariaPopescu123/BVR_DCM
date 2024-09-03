@@ -171,7 +171,7 @@ DCM_BVRwmetalsghgssecchilight <- DCM_BVRwmetalsghgssecchi |>
   mutate(light_availability_percentage = light_availability_fraction * 100)
 }
 
-#Adding PAR, DO, DOsat_percent, cond, ORP, pH (and Temp for 2017-2020) 
+####Adding PAR, DO, DOsat_percent, cond, ORP, pH (and Temp for 2017-2020) ####
 
 {
 PAR_profiles_filtered <- PAR_profiles |>
@@ -605,6 +605,14 @@ final_data0 <- final_data0|>
       WaterLevel_m
     )
   )
+
+####Photic Zone####
+
+looking <- final_data0|>
+  select(Date, Depth_m, interp_PAR_umolm2s, alpha, light_availability_fraction, light_availability_percentage)
+
+#need to see which dates only have secchi data and no PAR data
+
 
 ####Schmidt_stability####
 
