@@ -465,47 +465,47 @@ metdata0 <- metdata0 |>
 
 
 
-b1 <- metplots(2015, precip_daily, maxx = 80)
-b2 <- metplots(2016, precip_daily, maxx = 80)
-b3 <- metplots(2017, precip_daily, maxx = 80)
-b4 <- metplots(2018, precip_daily, maxx = 80)
-b5 <- metplots(2019, precip_daily, maxx = 80)
-b6 <- metplots(2020, precip_daily, maxx = 80)
-b7 <- metplots(2021, precip_daily, maxx = 80)
-b8 <- metplots(2022, precip_daily, maxx = 80)
-b9 <- metplots(2023, precip_daily, maxx = 80)
+#b1 <- metplots(2015, precip_daily, maxx = 80)
+#b2 <- metplots(2016, precip_daily, maxx = 80)
+#b3 <- metplots(2017, precip_daily, maxx = 80)
+#b4 <- metplots(2018, precip_daily, maxx = 80)
+#b5 <- metplots(2019, precip_daily, maxx = 80)
+#b6 <- metplots(2020, precip_daily, maxx = 80)
+#b7 <- metplots(2021, precip_daily, maxx = 80)
+#b8 <- metplots(2022, precip_daily, maxx = 80)
+#b9 <- metplots(2023, precip_daily, maxx = 80)
 
-precips<- plot_grid(
-  b1, b2, b3,
-  b4, b5, b6, 
-  b7, b8, b9,
-  ncol = 3
-)
-print(b1)
+#precips<- plot_grid(
+#  b1, b2, b3,
+#  b4, b5, b6, 
+#  b7, b8, b9,
+#  ncol = 3
+#)
+#print(b1)
 
-print(precips)
+#print(precips)
 
 #### Air temps #### 
 
-b1 <- metplots(2015, AirTemp_C_Average, maxx = 50)
-b2 <- metplots(2016, AirTemp_C_Average, maxx = 50)
-b3 <- metplots(2017, AirTemp_C_Average, maxx = 50)
-b4 <- metplots(2018, AirTemp_C_Average, maxx = 50)
-b5 <- metplots(2019, AirTemp_C_Average, maxx = 50)
-b6 <- metplots(2020, AirTemp_C_Average, maxx = 50)
-b7 <- metplots(2021, AirTemp_C_Average, maxx = 50)
-b8 <- metplots(2022, AirTemp_C_Average, maxx = 50)
-b9 <- metplots(2023, AirTemp_C_Average, maxx = 50)
+#b1 <- metplots(2015, AirTemp_C_Average, maxx = 50)
+#b2 <- metplots(2016, AirTemp_C_Average, maxx = 50)
+#b3 <- metplots(2017, AirTemp_C_Average, maxx = 50)
+#b4 <- metplots(2018, AirTemp_C_Average, maxx = 50)
+#b5 <- metplots(2019, AirTemp_C_Average, maxx = 50)
+#b6 <- metplots(2020, AirTemp_C_Average, maxx = 50)
+#b7 <- metplots(2021, AirTemp_C_Average, maxx = 50)
+#b8 <- metplots(2022, AirTemp_C_Average, maxx = 50)
+#b9 <- metplots(2023, AirTemp_C_Average, maxx = 50)
 
 
-temps<- plot_grid(
-  b1, b2, b3,
-  b4, b5, b6, 
-  b7, b8, b9,
-  ncol = 3
-)
+#temps<- plot_grid(
+#  b1, b2, b3,
+#  b4, b5, b6, 
+#  b7, b8, b9,
+#  ncol = 3
+#)
 
-print(temps)
+#print(temps)
 
 #### dailyaverage and dailymax for temps #### 
 metdata0 <- metdata0 |> 
@@ -547,34 +547,8 @@ final_data0 <- final_data0|>
   filter(Date %in% final_data0$Date)
 
 
+####thermocline ####
 
-#other variables to add 
-#Radiation
-#Albedo_Average_W_m2, Calculated from ShortwaveRadiationDown_Average_W_m2 divided by ShortwaveRadiationUp_Average_W_m2	
-  #higher albedo indicateds greater conductivi;.ty
-
-#ShortwaveRadiationUp_Average_W_m2 (incoming solar radiation), ShortwaveRadiationDown_Average_W_m2 (reflected radiation)
-    #important though, because this includes PAR, UV poriton (which can have beneficial and harmful effects).
-    #can drive processes like photosynthesis and photodegradation
-#InfraredRadiationUp_Average_W_m2,   InfraredRadiationDown_Average_W_m2
-
-
-#othermetdata variables to potentially look at
-#WindSpeed_Average_m_s, Wind speed averaged over measurement interval	
-#WindDir_degrees, Direction of wind at time of measurement
-
-#waterlevels
-
-#### buoyancy freq, thermocline ####
-
-BVRbath <- bath|>
-  filter(Reservoir == "BVR")
-
-final_data0 <- final_data0|>
-  group_by(CastID)|>
-  mutate(buoyancy_freq = c(buoyancy.freq(Temp_C, Depth_m), NA)) #added for padding for the last value
-#need to make sure this makes sense
-  
 # Dataframe with thermocline
 thermocline_df <- final_data0 |>
   group_by(CastID, Depth_m) |>
@@ -599,7 +573,64 @@ final_data0 <- final_datatest|>
   fill(thermocline_depth, .direction = "updown")|>
   ungroup()|>
   relocate(thermocline_depth, .before = Temp_C)
-  
+
+####Buoyancy Frequency ####
+
+BVRbath <- bath|>
+  filter(Reservoir == "BVR")
+
+final_data0 <- final_data0|>
+  group_by(CastID)|>
+  mutate(buoyancy_freq = c(buoyancy.freq(Temp_C, Depth_m), NA))|>#added for padding for the last value
+  relocate(buoyancy_freq, .before = thermocline_depth)
+#need to make sure this makes sense
+
+####Waterlevels####
+
+wtrlvl2 <- wtrlvl|>
+  mutate(Date = as.Date(DateTime))|>
+  select(Date, WaterLevel_m)
+
+final_data0 <- final_data0|>
+  left_join(wtrlvl2, by = c("Date"), relationship = "many-to-many")|>
+  mutate(
+    # For rows where 'value' from wtrlvl2 is NA after the join,
+    # find the closest date in wtrlvl2 and get the corresponding value
+    WaterLevel_m = ifelse(
+      is.na(WaterLevel_m),
+      sapply(Date, function(d) {
+        closest_date <- wtrlvl2$Date[which.min(abs(difftime(wtrlvl2$Date, d, units = "days")))]
+        wtrlvl2$WaterLevel_m[wtrlvl2$Date == closest_date]
+      }),
+      WaterLevel_m
+    )
+  )
+
+####Schmidt_stability####
+
+
+
+
+#other variables to add 
+#Radiation
+#Albedo_Average_W_m2, Calculated from ShortwaveRadiationDown_Average_W_m2 divided by ShortwaveRadiationUp_Average_W_m2	
+  #higher albedo indicateds greater conductivi;.ty
+
+#ShortwaveRadiationUp_Average_W_m2 (incoming solar radiation), ShortwaveRadiationDown_Average_W_m2 (reflected radiation)
+    #important though, because this includes PAR, UV poriton (which can have beneficial and harmful effects).
+    #can drive processes like photosynthesis and photodegradation
+#InfraredRadiationUp_Average_W_m2,   InfraredRadiationDown_Average_W_m2
+
+
+#othermetdata variables to potentially look at
+#WindSpeed_Average_m_s, Wind speed averaged over measurement interval	
+#WindDir_degrees, Direction of wind at time of measurement
+
+
+
+
+
+
 
 #### Timeseries analysis ####
 
