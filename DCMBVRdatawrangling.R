@@ -168,7 +168,7 @@ DCM_BVRwmetalsghgssecchi <- DCM_BVRwmetalsghgs|>
 DCM_BVRwmetalsghgssecchilight <- DCM_BVRwmetalsghgssecchi |>
   mutate(alpha = 1.7/Secchi_m) |>
   mutate(light_availability_fraction = exp(-alpha * Depth_m)) |>
-  mutate(light_availability_percentage = light_availability_fraction * 100)
+  mutate(sec_LAP = light_availability_fraction * 100) #light availability percentage calculated from secchi
 }
 
 ####Adding PAR, DO, DOsat_percent, cond, ORP, pH (and Temp for 2017-2020) ####
@@ -362,9 +362,34 @@ final_data <- final_data2|>
   select(-ORP_mV)
 
 
-}
-#Merge with DCM BVR data and keep only relevant rows
+####calculating PAR_LAP (Light availability percentage using PAR)####
+final_data$log_PAR <- log(final_data$interp_PAR_umolm2s)
 
+final_data <- final_data|>
+  relocate(log_PAR, .after = interp_PAR_umolm2s)
+
+# Perform linear regression to find the slope
+lm(log_PAR ~ Depth_m, data = final_data) 
+
+#first calculating new Kd value from provided PAR (that I interpolated from CTD data)
+final_data <- final_data |> 
+  group_by(CastID) |> 
+  filter(!all(is.na(log_PAR)) & !all(is.na(Depth_m))) |>  # Remove groups with all NAs
+  filter(!is.na(log_PAR) & !is.na(Depth_m) & is.finite(log_PAR) & is.finite(Depth_m)) |>  # Remove rows with NA, NaN, or Inf in relevant columns
+  mutate(PAR_K_d = abs(map_dbl(list(lm(log_PAR ~ Depth_m, data = cur_data())), ~coef(.x)["Depth_m"])))
+
+#now calculating light availability percentage from PAR_K_d
+final_datatest <- final_data |>
+  group_by(CastID)|>
+  mutate(PAR_LAP = 100* exp(-PAR_K_d * Depth_m))
+
+looking <- final_datatest|>
+  select(DateTime, Depth_m, PAR_K_d, PAR_LAP, sec_LAP)
+
+
+#next part kd <- -coef(model)["depth"]
+
+}
 
 #add a column with PAR calculated from the light availability fraction (will come back to this later)
 #add a column with light availability fraction using the interpolated PAR
