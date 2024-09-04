@@ -273,11 +273,12 @@ final_data <- final_data |>
   group_by(CastID)|>
   mutate(PAR_LAP = 100* exp(-PAR_K_d * Depth_m))
 
-looking <- final_datatest|>
-  select(DateTime, Depth_m, PAR_K_d, PAR_LAP, sec_LAP)
-#PAR_LAP and sec_LAP are so different
+####Secchi PZ####
+final_data <- final_data |>
+  mutate(secchi_PZ = 2.8*Secchi_m)|>
+  relocate(secchi_PZ, .before = sec_LAP)
 
-#### temps from 2017-2019  ####
+####Temps from 2017-2019  ####
 PAR_profiles_filtered <- PAR_profiles |>
   filter(Reservoir == "BVR", Site == 50)|>
   mutate(Date = as_date(DateTime))|>
@@ -618,14 +619,6 @@ final_data0 <- final_data0|>
       WaterLevel_m
     )
   )
-
-####Photic Zone####
-
-looking <- final_data0|>
-  select(Date, Depth_m, interp_PAR_umolm2s, sec_K_d, light_availability_fraction, light_availability_percentage)
-
-#need to see which dates only have secchi data and no PAR data
-
 
 ####Schmidt_stability####
 
