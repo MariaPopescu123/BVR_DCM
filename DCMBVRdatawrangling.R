@@ -622,7 +622,7 @@ final_data0 <- final_data0|>
     )
   )
 
-####Peak_width####
+####Peak.width####
 #focusing on bluegreens
 
 final_data0test <- final_data0 %>%
@@ -634,52 +634,31 @@ final_data0test <- final_data0 %>%
     peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean),
     # Apply the condition: If Bluegreens_DCM_conc < 20, set peak.top and peak.bottom to 0
     peak.top = if_else(Bluegreens_DCM_conc < 20, 0, peak.top),
-    peak.bottom = if_else(Bluegreens_DCM_conc < 20, 0, peak.bottom)
+    peak.bottom = if_else(Bluegreens_DCM_conc < 20, 0, peak.bottom),
+    peak.top = if_else(peak.top == 1, Depth_m, 0),    # Replace peak.top with Depth_m where peak.top == 1
+    peak.bottom = if_else(peak.bottom == 1, Depth_m, 0),
+    #Get the minimum peak.top value excluding 0, and replace Inf with NA if all values are NA or 0
+    peak.top = min(peak.top[peak.top != 0], na.rm = TRUE),
+    # Get the maximum peak.bottom value excluding 0, and replace -Inf with NA if all values are NA or 0
+    peak.bottom = max(peak.bottom[peak.bottom != 0], na.rm = TRUE),
+    peak.width = peak.bottom - peak.top,
+    peak.width = if_else(is.infinite(peak.width), NA_real_, peak.width)
   ) %>%
   ungroup()  # Ungroup after mutations
 
 
-looking <- final_data0test|>
-  select(Date, CastID, Depth_m, Bluegreens_ugL, peak.top, peak.bottom, blue_mean, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
+####Peak.magnitude####
 
-final_data0test1 <- final_data0test %>%
-  group_by(CastID) %>%
-  mutate(
-    peak.top = if_else(peak.top == 1, Depth_m, 0),    # Replace peak.top with Depth_m where peak.top == 1
-    peak.bottom = if_else(peak.bottom == 1, Depth_m, 0), # Replace peak.bottom with Depth_m where peak.bottom == 1
-  ) %>%
-  ungroup()
+final_data0 <- final_data0test|>
+  group_by(CastID)|>
+  mutate(peak.magnitude = max(Bluegreens_ugL)-mean(Bluegreens_ugL))
 
-looking <- final_data0test1|>
-  select(Date, CastID, Depth_m, Bluegreens_ugL, peak.top, peak.bottom, blue_mean, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
-
-
-# Use min and max to get the smallest/largest depth in each group
-final_data0test2 <- final_data0test1 %>%
-  group_by(CastID) %>%
-  mutate( 
-    #Get the minimum peak.top value excluding 0, and replace Inf with NA if all values are NA or 0
-    peak.top = min(peak.top[peak.top != 0], na.rm = TRUE),
-    
-    # Get the maximum peak.bottom value excluding 0, and replace -Inf with NA if all values are NA or 0
-    peak.bottom = max(peak.bottom[peak.bottom != 0], na.rm = TRUE)) %>%
-  ungroup()
-
-#make sure to only include values where Bluegreens_ugL > 20ugL
-looking <- final_data0test2|>
-  select(Date, CastID, Depth_m, Bluegreens_ugL, peak.top, peak.bottom, blue_mean, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
-
-final_data0 <- final_data0test2|>
-  mutate(peak.width = peak.bottom - peak.top)|>
-  mutate(peak.width = if_else(is.infinite(peak.width), NA_real_, peak.width))
-  
 looking <- final_data0|>
-  select(Date, CastID, Depth_m, Bluegreens_ugL, peak.top, peak.bottom, peak.width, blue_mean, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
-
-
+  select(CastID, Date, Depth_m, Bluegreens_DCM_conc, blue_mean, peak.magnitude, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
 
 ####Schmidt_stability####
-
+final_data_schmidt <- final_data0|>
+  
 
 
 
