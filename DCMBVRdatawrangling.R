@@ -55,7 +55,11 @@ DCM_BVRdata <- current_df %>%
   ungroup() %>%
   left_join(current_df, by = "CastID") %>% # Join back the original data to keep all columns
   mutate(DCM_depth = ifelse(TotalConc_ugL == DCM_totalconc, Depth_m, NA_real_))%>% # Add DCM_depth column
-  mutate(cyanosatDCM = ifelse(TotalConc_ugL == DCM_totalconc, Bluegreens_ugL, NA_real_))  #the concentration of cyanos at DCM
+  mutate(cyanosatDCM = ifelse(TotalConc_ugL == DCM_totalconc, Bluegreens_ugL, NA_real_))|>  #the concentration of cyanos at DCM
+  group_by(CastID)|>
+  mutate(Bluegreens_DCM_conc = max(Bluegreens_ugL, na.rm = TRUE))|> #concentration of bluegreens at bluegreens DCM
+  mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))
+  
 
 DCM_BVRdata <- DCM_BVRdata %>%
   group_by(CastID) %>%
@@ -63,19 +67,14 @@ DCM_BVRdata <- DCM_BVRdata %>%
   fill(DCM_depth, .direction = "downup") %>%  # Fill NA values in DCM_depth column within each CastID
   mutate(cyanosatDCM = ifelse(!is.na(cyanosatDCM), cyanosatDCM, NA_real_)) %>%  # Ensure cyanosatDCM is NA where condition didn't match
   fill(cyanosatDCM, .direction = "downup") %>%  # Fill NA values in cyanosatDCM column within each CastID
+  fill(Bluegreens_DCM_conc, .direction = "downup")|>
+  fill(Bluegreens_DCM_depth, .direction = "downup")|>
   ungroup()%>%
   relocate(DCM_depth, .before = 3)%>%
   relocate(cyanosatDCM, .before = 3)%>%
   mutate(DOY = yday(DateTime))%>%
   mutate(Date  = as_date(DateTime)) |> 
-  select(Date, DateTime, CastID, DCM_totalconc, DCM_depth, Depth_m, cyanosatDCM, Bluegreens_ugL, TotalConc_ugL,  Temp_C)
-
-ggplot(DCM_BVRdata, aes(x = DateTime, y = DCM_depth, color = DCM_totalconc)) +
-  geom_point() +
-  scale_y_reverse() +  # Invert y-axis
-  labs(x = "DateTime", y = "DCM_depth", color = "Concentration") +  # Labels for axes
-  ggtitle("Line Graph of DCM_depth over DateTime") +  # Title of the plot
-  theme_minimal()
+  select(Date, DateTime, CastID, DCM_totalconc, DCM_depth, Depth_m, cyanosatDCM, Bluegreens_DCM_conc, Bluegreens_DCM_depth, Bluegreens_ugL, TotalConc_ugL,  Temp_C)
 
 #### metals  ####
 {
@@ -261,7 +260,7 @@ final_data$log_PAR <- log(final_data$interp_PAR_umolm2s)
 final_data <- final_data|>
   relocate(log_PAR, .after = interp_PAR_umolm2s)
 
-#first calculating new Kd value from provided PAR (that I interpolated from CTD data)
+#first calculating new Kd value from provided PAR (that I interpolated from CTD data and PAR_profiles)
 final_data <- final_data |> 
   group_by(CastID) |> 
   filter(!all(is.na(log_PAR)) & !all(is.na(Depth_m))) |>  # Remove groups with all NAs
@@ -274,9 +273,12 @@ final_data <- final_data |>
   mutate(PAR_LAP = 100* exp(-PAR_K_d * Depth_m))
 
 ####Secchi PZ####
+#using secchi_PZ because the data for PAR between CTD and YSI is too different (for example look at PAR_profiles filtered and CTD filtered for 2018-5-4)
+#if I want to calculate PZ for specific years it would be ok but across all years no
 final_data <- final_data |>
   mutate(secchi_PZ = 2.8*Secchi_m)|>
-  relocate(secchi_PZ, .before = sec_LAP)
+  relocate(secchi_PZ, .before = sec_LAP)|>
+  relocate(PAR_LAP, .after = sec_LAP)
 
 ####Temps from 2017-2019  ####
 PAR_profiles_filtered <- PAR_profiles |>
@@ -619,6 +621,62 @@ final_data0 <- final_data0|>
       WaterLevel_m
     )
   )
+
+####Peak_width####
+#focusing on bluegreens
+
+final_data0test <- final_data0 %>%
+  group_by(CastID) %>%
+  mutate(
+    blue_mean = mean(Bluegreens_ugL, na.rm = TRUE),  # Calculate the mean, excluding NA values if necessary
+    blue_sd = sd(Bluegreens_ugL, na.rm = TRUE), #calculate the standard deviation
+    peak.top = as.integer(Depth_m <= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean),  # Create a binary indicator
+    peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean),
+    # Apply the condition: If Bluegreens_DCM_conc < 20, set peak.top and peak.bottom to 0
+    peak.top = if_else(Bluegreens_DCM_conc < 20, 0, peak.top),
+    peak.bottom = if_else(Bluegreens_DCM_conc < 20, 0, peak.bottom)
+  ) %>%
+  ungroup()  # Ungroup after mutations
+
+
+looking <- final_data0test|>
+  select(Date, CastID, Depth_m, Bluegreens_ugL, peak.top, peak.bottom, blue_mean, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
+
+final_data0test1 <- final_data0test %>%
+  group_by(CastID) %>%
+  mutate(
+    peak.top = if_else(peak.top == 1, Depth_m, 0),    # Replace peak.top with Depth_m where peak.top == 1
+    peak.bottom = if_else(peak.bottom == 1, Depth_m, 0), # Replace peak.bottom with Depth_m where peak.bottom == 1
+  ) %>%
+  ungroup()
+
+looking <- final_data0test1|>
+  select(Date, CastID, Depth_m, Bluegreens_ugL, peak.top, peak.bottom, blue_mean, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
+
+
+# Use min and max to get the smallest/largest depth in each group
+final_data0test2 <- final_data0test1 %>%
+  group_by(CastID) %>%
+  mutate( 
+    #Get the minimum peak.top value excluding 0, and replace Inf with NA if all values are NA or 0
+    peak.top = min(peak.top[peak.top != 0], na.rm = TRUE),
+    
+    # Get the maximum peak.bottom value excluding 0, and replace -Inf with NA if all values are NA or 0
+    peak.bottom = max(peak.bottom[peak.bottom != 0], na.rm = TRUE)) %>%
+  ungroup()
+
+#make sure to only include values where Bluegreens_ugL > 20ugL
+looking <- final_data0test2|>
+  select(Date, CastID, Depth_m, Bluegreens_ugL, peak.top, peak.bottom, blue_mean, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
+
+final_data0 <- final_data0test2|>
+  mutate(peak.width = peak.bottom - peak.top)|>
+  mutate(peak.width = if_else(is.infinite(peak.width), NA_real_, peak.width))
+  
+looking <- final_data0|>
+  select(Date, CastID, Depth_m, Bluegreens_ugL, peak.top, peak.bottom, peak.width, blue_mean, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
+
+
 
 ####Schmidt_stability####
 

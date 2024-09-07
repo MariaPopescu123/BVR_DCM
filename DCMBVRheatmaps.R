@@ -2,10 +2,13 @@
 #Maria Popescu
 #alot of help writing the function from Mary
 
-#need to add in final_data0
+
+#check to make sure 
 
 final_data0 <- read.csv("./final_data0.csv")
 
+
+#need to change these values to reflect Bluegreens not just chla (which it currently is)
 # Chlorophyll data for the line visualizing chl max on heatmaps
 chlorophyll_data <- final_data0 |>
   filter(DCM_totalconc > 20)|> #choosing greater than 20 as the bloom
