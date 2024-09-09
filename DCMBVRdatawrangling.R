@@ -607,7 +607,7 @@ wtrlvl2 <- wtrlvl|>
   mutate(Date = as.Date(DateTime))|>
   select(Date, WaterLevel_m)
 
-final_data0 <- final_data0|>
+final_data_water <- final_data0|>
   left_join(wtrlvl2, by = c("Date"), relationship = "many-to-many")|>
   mutate(
     # For rows where 'value' from wtrlvl2 is NA after the join,
@@ -623,12 +623,14 @@ final_data0 <- final_data0|>
   )
 
 ####Peak.width####
+#use blue_mean not blue_median
 #focusing on bluegreens
 
-final_data0test <- final_data0 %>%
+final_data0test <- final_data_water %>%
   group_by(CastID) %>%
   mutate(
-    blue_mean = mean(Bluegreens_ugL, na.rm = TRUE),  # Calculate the mean, excluding NA values if necessary
+    blue_med = median(Bluegreens_ugL, na.rm = TRUE),  # Calculate the mean, excluding NA values if necessary
+    blue_mean = mean(Bluegreens_ugL, na.rm = TRUE),
     blue_sd = sd(Bluegreens_ugL, na.rm = TRUE), #calculate the standard deviation
     peak.top = as.integer(Depth_m <= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean),  # Create a binary indicator
     peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean),
@@ -654,7 +656,7 @@ final_data0 <- final_data0test|>
   mutate(peak.magnitude = max(Bluegreens_ugL)-mean(Bluegreens_ugL))
 
 looking <- final_data0|>
-  select(CastID, Date, Depth_m, Bluegreens_DCM_conc, blue_mean, peak.magnitude, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
+  select(CastID, Date, Depth_m, Bluegreens_DCM_conc, blue_med, blue_mean, peak.width, peak.magnitude, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
 
 ####Schmidt_stability####
 final_data_schmidt <- final_data0|>
