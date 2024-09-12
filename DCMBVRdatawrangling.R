@@ -697,163 +697,91 @@ write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 
 #basic correlations for exploratory analysis 
 #removed buoyancy_freq for now bc had -inf will come back to
-#2015
-final_data_cor2015 <- final_data0|>
-  filter(year(DateTime) == 2015, Reservoir == "BVR", Site == 50)|>
-  filter(month(DateTime) > 04, month(DateTime) < 10)|>
-  select(Date, peak.width, Bluegreens_DCM_depth, Bluegreens_DCM_conc,
-         Bluegreens_DCM_depth, thermocline_depth, 
-         secchi_PZ, sec_K_d, PAR_K_d, np_ratio, DCM, Depth_m)|>
-  group_by(Date)|>
-  mutate(DCM_np_ratio = if_else(DCM == TRUE, np_ratio, NA_real_))|>
+
+####dataframe for just the DCM each day####
+DCM_final <- final_data0 |>
+  filter(month(DateTime) >= 4, month(DateTime) < 10) |>
+  group_by(Date) |>
+  mutate(across(c(interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
+                  interp_TCa_mgL, interp_TCu_mgL, interp_SBa_mgL, interp_TBa_mgL,
+                  interp_CO2_umolL, interp_CH4_umolL, interp_DO_mgL,
+                  interp_DOsat_percent, interp_Cond_uScm, interp_ORP_mV, interp_pH, interp_TN_ugL, interp_TP_ugL, 
+                  interp_NH4_ugL, interp_NO3NO2_ugL, interp_SRP_ugL, interp_DOC_mgL, interp_DIC_mgL, 
+                  interp_DC_mgL), 
+                ~ if_else(DCM == TRUE, .x, NA_real_), .names = "DCM_{.col}")) |>
+  fill(starts_with("DCM_interp_"), .direction = "updown") |>
+  mutate(DCM_np_ratio = if_else(DCM == TRUE, np_ratio, NA_real_)) |>
   fill(DCM_np_ratio, .direction = "updown") |>
-  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)))|>
-  select(-Depth_m, -DCM, -np_ratio)|>
-  ungroup()
-drivers_cor2015 <- cor(final_data_cor2016[,c(2, 3, 4, 5, 6, 7, 8, 9)],method = "spearman",use = "pairwise.complete.obs")
+  mutate(DCM_Temp_C = if_else(DCM == TRUE, Temp_C, NA_real_)) |>
+  fill(DCM_Temp_C, .direction = "updown") |>
+  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
+         sec_K_d,PAR_K_d, buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio, WaterLevel_m,DCM_interp_SFe_mgL,
+         DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
+         DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
+         DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
+         DCM_interp_DOsat_percent, DCM_interp_Cond_uScm, DCM_interp_ORP_mV, DCM_interp_pH, DCM_interp_TN_ugL, DCM_interp_TP_ugL, 
+         DCM_interp_NH4_ugL, DCM_interp_NO3NO2_ugL, DCM_interp_SRP_ugL, DCM_interp_DOC_mgL, DCM_interp_DIC_mgL, 
+         DCM_interp_DC_mgL)|>
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
+  ungroup()|>
+  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
+         sec_K_d, PAR_K_d, buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio, WaterLevel_m,DCM_interp_SFe_mgL,
+         DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
+         DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
+         DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
+         DCM_interp_DOsat_percent, DCM_interp_Cond_uScm, DCM_interp_ORP_mV, DCM_interp_pH, DCM_interp_TN_ugL, DCM_interp_TP_ugL, 
+         DCM_interp_NH4_ugL, DCM_interp_NO3NO2_ugL, DCM_interp_SRP_ugL, DCM_interp_DOC_mgL, DCM_interp_DIC_mgL, 
+         DCM_interp_DC_mgL)
 
 
+####correlation function####
 
-#2016
-final_data_cor2016 <- final_data0|>
-  filter(year(DateTime) == 2016, Reservoir == "BVR", Site == 50)|>
-  filter(month(DateTime) > 04, month(DateTime) < 10)|>
-  select(Date, peak.width, Bluegreens_DCM_depth, Bluegreens_DCM_conc,
-         Bluegreens_DCM_depth, thermocline_depth, 
-         secchi_PZ, sec_K_d, PAR_K_d, np_ratio, DCM, Depth_m)|>
-  group_by(Date)|>
-  mutate(DCM_np_ratio = if_else(DCM == TRUE, np_ratio, NA_real_))|>
-  fill(DCM_np_ratio, .direction = "updown") |>
-  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)))|>
-  select(-Depth_m, -DCM, -np_ratio)|>
-  ungroup()
-drivers_cor2016 <- cor(final_data_cor2016[,c(2, 3, 4, 5, 6, 7, 8, 9)],method = "spearman",use = "pairwise.complete.obs")
-
-
-
-#2017
-final_data_cor2017 <- final_data0|>
-  filter(year(DateTime) == 2017, Reservoir == "BVR", Site == 50)|>
-  filter(month(DateTime) > 04, month(DateTime) < 10)|>
-  select(Date, peak.width, Bluegreens_DCM_depth, Bluegreens_DCM_conc,
-         Bluegreens_DCM_depth, thermocline_depth, 
-         secchi_PZ, sec_K_d, PAR_K_d, np_ratio, DCM, Depth_m)|>
-  group_by(Date)|>
-  mutate(DCM_np_ratio = if_else(DCM == TRUE, np_ratio, NA_real_))|>
-  fill(DCM_np_ratio, .direction = "updown") |>
-  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)))|>
-  select(-Depth_m, -DCM, -np_ratio)|>
-  ungroup()
-drivers_cor2017 <- cor(final_data_cor2017[,c(2, 3, 4, 5, 6, 7, 8, 9)],method = "spearman",use = "pairwise.complete.obs")
-
-
-#2018
-final_data_cor2018 <- final_data0|>
-  filter(year(DateTime) == 2018, Reservoir == "BVR", Site == 50)|>
-  filter(month(DateTime) > 04, month(DateTime) < 09)|>
-  select(Date, peak.width, Bluegreens_DCM_depth, Bluegreens_DCM_conc,
-         Bluegreens_DCM_depth, thermocline_depth, 
-         secchi_PZ, sec_K_d, PAR_K_d, np_ratio, DCM, Depth_m)|>
-  group_by(Date)|>
-  mutate(DCM_np_ratio = if_else(DCM == TRUE, np_ratio, NA_real_))|>
-  fill(DCM_np_ratio, .direction = "updown") |>
-  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)))|>
-  select(-Depth_m, -DCM, -np_ratio)|>
-  ungroup()
-drivers_cor2018 <- cor(final_data_cor2018[,c(2, 3, 4, 5, 6, 7, 8, 9)],method = "spearman",use = "pairwise.complete.obs")
-
-#2019
-
-final_data_cor2019 <- final_data0|>
-  filter(year(DateTime) == 2019, Reservoir == "BVR", Site == 50)|>
-  filter(month(DateTime) > 04, month(DateTime) < 09)|>
-  select(Date, peak.width, Bluegreens_DCM_depth, Bluegreens_DCM_conc,
-         Bluegreens_DCM_depth, thermocline_depth, 
-         secchi_PZ, sec_K_d, PAR_K_d)|>
-  group_by(Date)|>
-  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)))
-
-
-drivers_cor2019 <- cor(final_data_cor2019[,c(2, 3, 4, 5, 6, 7, 8)],method = "spearman",use = "pairwise.complete.obs")
-
-#seeing if I combine 2015-2019 what that will look like 
-
-combinedcordata <- bind_rows(final_data_cor2015, final_data_cor2016,
-                             final_data_cor2017, final_data_cor2018,
-                             final_data_cor2019)
-drivers_combinedcordata <- cor(combinedcordata[,c(2, 3, 4, 5, 6, 7, 8,9)],method = "spearman",use = "pairwise.complete.obs")
-
-
-#2020
-
-final_data_cor2020 <- final_data0|>
-  filter(year(DateTime) == 2020, Reservoir == "BVR", Site == 50)|>
-  filter(month(DateTime) > 04, month(DateTime) < 09)|>
-  select(Date, peak.width, Bluegreens_DCM_depth, Bluegreens_DCM_conc,
-         Bluegreens_DCM_depth, thermocline_depth, 
-         secchi_PZ, sec_K_d, PAR_K_d)|>
-  group_by(Date)|>
-  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)))
-
-
-drivers_cor2020 <- cor(final_data_cor2020[,c(2, 3, 4, 5, 6, 7, 8)],method = "spearman",use = "pairwise.complete.obs")
-
-#2021
-
-final_data_cor2021 <- final_data0|>
-  filter(year(DateTime) == 2021, Reservoir == "BVR", Site == 50)|>
-  filter(month(DateTime) > 04, month(DateTime) < 09)|>
-  select(Date, peak.width, Bluegreens_DCM_depth, Bluegreens_DCM_conc,
-         Bluegreens_DCM_depth, thermocline_depth, 
-         secchi_PZ, sec_K_d, PAR_K_d)|>
-  group_by(Date)|>
-  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)))
-
-
-drivers_cor2021 <- cor(final_data_cor2021[,c(2, 3, 4, 5, 6, 7, 8)],method = "spearman",use = "pairwise.complete.obs")
-
-####function for specific years and potential drivers####
-
-correlations <- function(year1, year2, driver) {
-  final_data_cor <- final_data0 |>
-    filter(year(DateTime) >= {{year1}}, year(DateTime) <= {{year2}}, Reservoir == "BVR", Site == 50) |>
-    filter(month(DateTime) > 4, month(DateTime) < 10) |>
-    filter(Bluegreens_DCM_conc > 20)|>
-    select(Date, peak.width, Bluegreens_DCM_depth, Bluegreens_DCM_conc,
-           Bluegreens_DCM_depth, thermocline_depth, 
-           secchi_PZ, sec_K_d, PAR_K_d, {{ driver }}, DCM, Depth_m) |>
-    group_by(Date) |>
-    mutate(DCM_driver = if_else(DCM == TRUE, {{ driver }}, NA_real_)) |>
-    fill(DCM_driver, .direction = "updown") |>
-    summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
-    select(-Depth_m, -DCM, -{{ driver }}) |>
-    ungroup()
+correlations <- function(year1, year2) {
+  DCM_final_cor <- DCM_final |>
+    filter(year(Date) >= {{year1}}, year(Date) <= {{year2}}) |>
+    filter(month(Date) > 4, month(Date) < 10) |>
+    filter(Bluegreens_DCM_conc > 20)
   
-  drivers_cor <- cor(final_data_cor[,c(2, 3, 4, 5, 6, 7, 8, 9)],
+  drivers_cor <- cor(DCM_final_cor[,c(2:38)],
                      method = "spearman", use = "pairwise.complete.obs")
  
-  list(drivers_cor = drivers_cor, final_data_cor = final_data_cor)
+  list(drivers_cor = drivers_cor, DCM_final_cor = DCM_final_cor)
 
 }
 
 #cutoff 0.7
-results <- correlations(2016, 2016, interp_TN_ugL)
+results <- correlations(2019, 2019)
 final_data_cor_results <- results$drivers_cor
-final_data_cor <- results$final_data_cor
+final_data_cor_results[lower.tri(final_data_cor_results)] = ""
+
+final_data_cor <- results$DCM_final_cor
 
 
-#2015: interp_S_Fe =0.71428571 for peak depth and -0.71428571 for peak width
-        #interp_pH = -0.7619048 for peak depth and 0.7619048 for peak width
-        #Temp_C = -.903 for peak depth
-        #interp_TN = 0.73333333
-#2016: temp_C = -0.925142 for peak depth | 0.9504644 for peak width
-        #interp_TN_ugL = 0.7523220 for DCM concentration
-#2017: temp_C = -0.8124157 for peak depth| 0.7799855 for peak width
-        #secchi_PZ =  0.7060631 for peak depth
-#2018: Temp_C = -0.900000 for peak depth and 0.9 for width
-#2019: secchi_PZ = .83 peak depth
-      #np_ratio = .842 for peak depth
-      #temp NAs come back
+####daily correlation, for choosing specific day####
+
+#these are the days that the max Bluegreens_ugL occurs. The biggest bloom. 
+blooms <- final_data0|>
+  group_by(year(DateTime))|>
+  mutate(bloommax = if_else(Bluegreens_ugL == max(Bluegreens_ugL), TRUE, NA_real_))|>
+  
+  
+
+
+daily_cor <- final_data0|>
+  filter(Date %in% c("2019-06-27"))|>
+  select(Depth_m, Bluegreens_ugL, TotalConc_ugL, interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
+         interp_TCa_mgL, interp_TCu_mgL, interp_SBa_mgL, interp_TBa_mgL,
+         interp_CO2_umolL, interp_CH4_umolL, interp_DO_mgL,
+         interp_DOsat_percent, interp_Cond_uScm, interp_ORP_mV, interp_pH, np_ratio ,interp_TN_ugL, interp_TP_ugL, 
+         interp_NH4_ugL, interp_NO3NO2_ugL, interp_SRP_ugL, interp_DOC_mgL, interp_DIC_mgL, 
+         interp_DC_mgL, PAR_LAP, interp_PAR_umolm2s, sec_LAP, )
+
+daily_cor_result <- cor(daily_cor[,c(1:30)], method = "spearman", use = "pairwise.complete.obs")
+  
+daily_cor_result[lower.tri(daily_cor_result)] = ""
+
+
+
 
 
 
