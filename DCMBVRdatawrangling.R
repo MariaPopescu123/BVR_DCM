@@ -118,6 +118,7 @@ DCM_BVRwmetals <- DCM_BVRdata %>%
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in DCMdata
 }
 
+
 #### ghgs  ####
 {
 ghgs_filtered <- ghgs |>
@@ -170,7 +171,7 @@ DCM_BVRwmetalsghgssecchilight <- DCM_BVRwmetalsghgssecchi |>
   mutate(sec_LAP = light_availability_fraction * 100) #light availability percentage calculated from secchi
 }
 
-####Adding PAR, DO, DOsat_percent, cond, ORP, pH (and Temp for 2017-2020) ####
+####Adding PAR, DO, DOsat_percent, cond, ORP, pH ####
 
 PAR_profiles_filtered <- PAR_profiles |>
   filter(Reservoir == "BVR", Site == 50)|>
@@ -281,7 +282,7 @@ final_data <- final_data |>
   relocate(PAR_LAP, .after = sec_LAP)
 
 ####Temps from 2017-2019  ####
-PAR_profiles_filtered <- PAR_profiles |>
+CTDfiltered <- CTD |>
   filter(Reservoir == "BVR", Site == 50)|>
   mutate(Date = as_date(DateTime))|>
   group_by(Date, Depth_m)|>
@@ -291,7 +292,7 @@ PAR_profiles_filtered <- PAR_profiles |>
 interpolated_data <- DCM_BVRdata |> 
   select(Date, Depth_m) |> 
   distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(PAR_profiles_filtered) |> 
+  bind_rows(CTDfiltered) |> 
   arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
   group_by(Date)  |> # Group data by Date for interpolation
   mutate(Temp_C = zoo::na.approx(Temp_C, x = Depth_m, na.rm = FALSE)) |>
@@ -304,6 +305,10 @@ final_data2 <- final_data %>%
 final_data <- final_data2|>
   mutate(Temp_C = coalesce(Temp_C.x, Temp_C.y))|>
   select(-Temp_C.x, -Temp_C.y)
+
+looking <- final_data|>
+  filter(year(DateTime) == 2019)|>
+  select(Date, Depth_m, Temp_C)
 
 #### pH ####
 # Adding pH for 2017
@@ -446,6 +451,8 @@ final_data0 <- final_data0 %>%
   mutate(np_ratio = calculate_np_ratio(interp_TN_ugL,interp_TP_ugL))|>
   relocate(np_ratio, .before = interp_TN_ugL)
 }
+
+
 
 #### Visualizing metdata  ####
 
@@ -657,9 +664,6 @@ final_data_peaks <- final_data0test|>
   ungroup()|>
   select(-cyanosatDCM) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
 
-looking <- final_data0|>
-  select(CastID, Date, Depth_m, Bluegreens_DCM_conc, blue_med, blue_mean, peak.width, peak.magnitude, Bluegreens_DCM_conc, Bluegreens_DCM_depth)
-
 ####Schmidt_stability####
 
 
@@ -692,13 +696,10 @@ write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 
 
 
-
-#### Timeseries analysis ####
-
-#basic correlations for exploratory analysis 
+####correlations####
 #removed buoyancy_freq for now bc had -inf will come back to
 
-####dataframe for just the DCM each day####
+####daily DCM dataframe with daily averages####
 DCM_final <- final_data0 |>
   filter(month(DateTime) >= 4, month(DateTime) < 10) |>
   group_by(Date) |>
@@ -714,8 +715,10 @@ DCM_final <- final_data0 |>
   fill(DCM_np_ratio, .direction = "updown") |>
   mutate(DCM_Temp_C = if_else(DCM == TRUE, Temp_C, NA_real_)) |>
   fill(DCM_Temp_C, .direction = "updown") |>
+  mutate(DCM_buoyancy_freq = if_else(DCM == TRUE, buoyancy_freq, NA_real_)) |>
+  fill(DCM_buoyancy_freq, .direction = "updown") |>
   select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d,PAR_K_d, buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio, WaterLevel_m,DCM_interp_SFe_mgL,
+         sec_K_d,PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio, WaterLevel_m,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
          DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
@@ -725,7 +728,7 @@ DCM_final <- final_data0 |>
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
   ungroup()|>
   select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d, PAR_K_d, buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio, WaterLevel_m,DCM_interp_SFe_mgL,
+         sec_K_d, PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio, WaterLevel_m,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
          DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
@@ -750,10 +753,9 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2019, 2019)
+results <- correlations(2022, 2022)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
-
 final_data_cor <- results$DCM_final_cor
 
 
@@ -763,22 +765,76 @@ final_data_cor <- results$DCM_final_cor
 blooms <- final_data0|>
   group_by(year(DateTime))|>
   mutate(bloommax = if_else(Bluegreens_ugL == max(Bluegreens_ugL), TRUE, NA_real_))|>
+  ungroup()|>
+  filter(bloommax == TRUE)|>
+  group_by(Date)|>
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
+  ungroup()
   
-  
-
+#"2014-07-02" "2015-06-18" "2016-06-30" "2017-07-20" "2018-08-16" "2019-06-27" "2020-09-16" "2021-07-26" "2022-08-01" "2023-07-24"
 
 daily_cor <- final_data0|>
-  filter(Date %in% c("2019-06-27"))|>
+  filter(Date %in% c("2022-08-01"))|>
   select(Depth_m, Bluegreens_ugL, TotalConc_ugL, interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
          interp_TCa_mgL, interp_TCu_mgL, interp_SBa_mgL, interp_TBa_mgL,
          interp_CO2_umolL, interp_CH4_umolL, interp_DO_mgL,
          interp_DOsat_percent, interp_Cond_uScm, interp_ORP_mV, interp_pH, np_ratio ,interp_TN_ugL, interp_TP_ugL, 
          interp_NH4_ugL, interp_NO3NO2_ugL, interp_SRP_ugL, interp_DOC_mgL, interp_DIC_mgL, 
-         interp_DC_mgL, PAR_LAP, interp_PAR_umolm2s, sec_LAP, )
+         interp_DC_mgL, PAR_LAP, interp_PAR_umolm2s, sec_LAP, Temp_C, buoyancy_freq)
 
-daily_cor_result <- cor(daily_cor[,c(1:30)], method = "spearman", use = "pairwise.complete.obs")
+daily_cor_result <- cor(daily_cor[,c(1:32)], method = "spearman", use = "pairwise.complete.obs")
   
 daily_cor_result[lower.tri(daily_cor_result)] = ""
+
+####DCM depth boxplot####
+
+library(ggplot2)
+library(lubridate)
+library(ggthemes)
+
+# Filter and prepare the data for the years 2015-2023
+boxplot_Data <- DCM_final |>
+  filter(year(Date) >= 2014, year(Date) <= 2023, Bluegreens_DCM_conc > 30) |>
+  filter(month(Date) > 5, month(Date) < 9) |>
+  mutate(Year = year(Date), Month = month(Date))
+
+# Calculate max_legend_value for the color scale limits
+max_legend_value <- max(boxplot_Data$Bluegreens_DCM_conc, na.rm = TRUE)
+
+# Create the multi-panel boxplot with an overlay of colored points for Bluegreens_DCM_conc
+ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
+                         y = Bluegreens_DCM_depth)) +
+  geom_boxplot() +
+  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  facet_wrap(~ Year) +  # Create a panel for each year
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
+  ylim(10, 0) +  # Set the y-axis limits, reversing the range
+  labs(x = "Month", y = "DCM Depth", color = "Bluegreens ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+####DCM peak width box plots####
+
+# Create the multi-panel boxplot with an overlay of colored points for Bluegreens_DCM_conc
+ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
+                         y = peak.width)) +
+  geom_boxplot() +
+  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  facet_wrap(~ Year) +  # Create a panel for each year
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  labs(x = "Month", y = "Peak Width", color = "Bluegreens ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+####DCM peak magnitude box plots####
+ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
+                         y = peak.magnitude)) +
+  geom_boxplot() +
+  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  facet_wrap(~ Year) +  # Create a panel for each year
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  labs(x = "Month", y = "Peak Magnitude", color = "Bluegreens ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 
 
 
