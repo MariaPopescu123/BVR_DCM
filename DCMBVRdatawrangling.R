@@ -629,18 +629,26 @@ final_data_water <- final_data0|>
     )
   )
 
+#separate data frame for peak widths, depths, and magnitude calculations
+for_peaks <- final_data_water|>
+  select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
+  group_by(Date, Depth_m) |>
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
+
 ####Peak.width####
 #use blue_mean not blue_median
 #focusing on bluegreens
 
-final_data0test <- final_data_water %>%
-  group_by(CastID) %>%
+peaks_calculated <- for_peaks %>%
+  group_by(Date) %>%
   mutate(
     blue_med = median(Bluegreens_ugL, na.rm = TRUE),  # Calculate the mean, excluding NA values if necessary
-    blue_mean = mean(Bluegreens_ugL, na.rm = TRUE),
     blue_sd = sd(Bluegreens_ugL, na.rm = TRUE), #calculate the standard deviation
-    peak.top = as.integer(Depth_m <= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean),  # Create a binary indicator
-    peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean),
+    blue_mean = mean(Bluegreens_ugL, na.rm = TRUE),
+    blue_mean_plus_sd = blue_mean + (blue_sd),
+    blue_sd = sd(Bluegreens_ugL, na.rm = TRUE), #calculate the standard deviation
+    peak.top = as.integer(Depth_m <= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),  # Create a binary indicator
+    peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),
     # Apply the condition: If Bluegreens_DCM_conc < 20, set peak.top and peak.bottom to 0
     peak.top = if_else(Bluegreens_DCM_conc < 20, 0, peak.top),
     peak.bottom = if_else(Bluegreens_DCM_conc < 20, 0, peak.bottom),
@@ -655,14 +663,21 @@ final_data0test <- final_data_water %>%
   ) %>%
   ungroup()  # Ungroup after mutations
 
+looking <- peaks_calculated|>
+  filter(year(Date) == 2018, month(Date) == 07)|>
+  select(Date, Depth_m, Bluegreens_DCM_conc, Bluegreens_DCM_depth, Bluegreens_ugL, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width)
+
 
 ####Peak.magnitude####
 
-final_data_peaks <- final_data0test|>
-  group_by(CastID)|>
+final_data_peaks <- peaks_calculated|>
+  group_by(Date)|>
   mutate(peak.magnitude = max(Bluegreens_ugL)-mean(Bluegreens_ugL))|>
   ungroup()|>
-  select(-cyanosatDCM) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
+  select(Date, Depth_m, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
+
+final_data0 <- final_data_water|>
+  left_join(final_data_peaks, by = c("Date", "Depth_m"))
 
 ####Schmidt_stability####
 
@@ -687,7 +702,6 @@ final_data_peaks <- final_data0test|>
 
 
 #make sure to change final dataframe to this
-final_data0 <- final_data_peaks
 
 
 write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
@@ -702,6 +716,8 @@ write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 ####daily DCM dataframe with daily averages####
 DCM_final <- final_data0 |>
   filter(month(DateTime) >= 4, month(DateTime) < 10) |>
+  filter(!(month(DateTime) == 8 & year(DateTime) == 2017 & Bluegreens_ugL < 35))|> #filter out weird drop in 2017
+  filter(!(CastID == 395))|> #filter out weird drop in 2016|>
   group_by(Date) |>
   mutate(across(c(interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
                   interp_TCa_mgL, interp_TCu_mgL, interp_SBa_mgL, interp_TBa_mgL,
