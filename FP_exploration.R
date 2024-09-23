@@ -5,7 +5,11 @@
 library(tidyverse)
 library(lubridate)
 
+#flora data raw 2024
 dat <- read_csv("https://raw.githubusercontent.com/CareyLabVT/Reservoirs/master/Data/DataNotYetUploadedToEDI/Raw_fluoroprobe/fluoroprobe_L1.csv")
+
+#flora data all years
+dat <- read.csv("./current_df.csv")
 
 length(unique(dat$CastID)) 
 
@@ -17,9 +21,16 @@ casts <- dat %>%
 # Look at casts post-servicing
 
 # limit to casts you actually want
+#change dates here
 sample_dat <- casts %>%
-  filter(Reservoir == "BVR" & Site == 50) %>% # you can add more dates here # & Date %in% c("2024-07-22")
-  mutate(SampleDepth = c(3.6)) # for every date you add, add the depth at which the phyto sample was taken
+  filter(Reservoir == "BVR" & Site == 50 & Date %in%
+  c("2014-07-02","2015-06-18","2016-06-30","2017-07-20","2018-08-16",
+  "2019-06-27","2020-09-16","2021-07-26","2022-08-01","2023-07-24"))|>
+  mutate(SampleDepth = c(3.6), 
+         Date = factor(Date, levels = c("2014-07-02", "2015-06-18", "2016-06-30", "2017-07-20", "2018-08-16",
+                                        "2019-06-27", "2020-09-16", "2021-07-26", "2022-08-01", "2023-07-24")),
+         Date = as.Date(as.character(Date)))  # Convert factor back to Date
+
 
 plot_dat <- dat %>%
   mutate(Date = date(DateTime)) %>%
@@ -43,8 +54,8 @@ plot_casts <- ggplot(plot_dat, aes(x = ugL, y = Depth_m, group = var, color = va
   scale_color_discrete(name = "Variable")+
   scale_linetype_discrete(na.translate = F)
 plot_casts
-ggsave("./Desktop/FP_exploration/FP_casts_2024.png", device = "png",
-       height = 6, width = 10.5, units = "in")  # you will probably want to change the dimensions
+#ggsave("./Desktop/FP_exploration/FP_casts_2024.png", device = "png",
+#       height = 6, width = 10.5, units = "in")  # you will probably want to change the dimensions
 
 ## made edits through here - after that you are on your own :-)
 
@@ -65,5 +76,14 @@ group_biomass_plot <- ggplot(data = group_biomass, aes(x = var, y = ugL, color =
   ggtitle("Text inside each subplot is distance between FP measurement and phyto sample in meters")+
   xlab("")
 group_biomass_plot
-ggsave("./Desktop/FP_exploration/FP_group_biomass_at_sample_depth_2024.png", device = "png",
-       height = 3, width = 12, units = "in") 
+#ggsave("./Desktop/FP_exploration/FP_group_biomass_at_sample_depth_2024.png", device = "png",
+#       height = 3, width = 12, units = "in") 
+
+
+
+
+
+
+
+
+

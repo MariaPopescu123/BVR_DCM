@@ -7,7 +7,7 @@ beep <- function(){
 
 pacman::p_load(tidyverse, lubridate, akima, reshape2, 
                gridExtra, grid, colorRamps, RColorBrewer, rLakeAnalyzer,
-               reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast)
+               reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes)
 
 #### Loading Data  ####
 
@@ -59,7 +59,6 @@ DCM_BVRdata <- current_df %>%
   group_by(CastID)|>
   mutate(Bluegreens_DCM_conc = max(Bluegreens_ugL, na.rm = TRUE))|> #concentration of bluegreens at bluegreens DCM
   mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))
-  
 
 DCM_BVRdata <- DCM_BVRdata %>%
   group_by(CastID) %>%
@@ -117,7 +116,6 @@ DCM_BVRwmetals <- DCM_BVRdata %>%
   select(-SFe_mgL, -TFe_mgL, -SMn_mgL, -SCa_mgL, -TCa_mgL, -TCu_mgL, -SCu_mgL, -SBa_mgL, -TBa_mgL) %>% # Remove unnecessary columns
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in DCMdata
 }
-
 
 #### ghgs  ####
 {
@@ -184,10 +182,6 @@ PAR_profiles_filtered <- PAR_profiles |>
             ORP_mV = mean(ORP_mV, na.rm = TRUE),
             pH = mean(pH, na.rm = TRUE))
 
-DCM_BVRdata <- DCM_BVRdata %>%
-    mutate(Date = as.Date(Date, format = "%Y-%m-%d")) # Adjust format as needed
-  
-  
 interpolated_data <- DCM_BVRdata |> 
   select(Date, Depth_m) |> 
   distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
@@ -234,12 +228,12 @@ interpolated_data <- DCM_BVRdata |>
   mutate(interp_pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
   ungroup()
 
-final_data2 <- final_data %>% #remember to remove the 2 after this works so i can call it in the next thing
+final_dataCTD <- final_data %>% #remember to remove the 2 after this works so i can call it in the next thing
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   select(-DO_mgL, -PAR_umolm2s, -DOsat_percent, -Cond_uScm, -ORP_mV, -pH) %>% # Remove unnecessary columns
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
-final_data <- final_data2|>
+final_dataCTDmerged <- final_dataCTD|>
   mutate(interp_PAR_umolm2s = coalesce(interp_PAR_umolm2s.x, interp_PAR_umolm2s.y)) %>%
   mutate(interp_DO_mgL = coalesce(interp_DO_mgL.x, interp_DO_mgL.y)) %>%
   mutate(interp_DOsat_percent = coalesce(interp_DOsat_percent.x, interp_DOsat_percent.y)) %>%
@@ -256,27 +250,33 @@ final_data <- final_data2|>
   relocate(Site, .before = 1)
 
 ####calculating PAR_LAP (Light availability percentage using interpolated PAR)####
-final_data$log_PAR <- log(final_data$interp_PAR_umolm2s)
+final_dataCTDmerged$log_PAR <- log(final_dataCTDmerged$interp_PAR_umolm2s)
 
-final_data <- final_data|>
+final_dataPARlog <- final_dataCTDmerged|>
   relocate(log_PAR, .after = interp_PAR_umolm2s)
 
 #first calculating new Kd value from provided PAR (that I interpolated from CTD data and PAR_profiles)
-final_data <- final_data |> 
+PAR_KD_dataframe <- final_dataPARlog |> 
   group_by(CastID) |> 
   filter(!all(is.na(log_PAR)) & !all(is.na(Depth_m))) |>  # Remove groups with all NAs
   filter(!is.na(log_PAR) & !is.na(Depth_m) & is.finite(log_PAR) & is.finite(Depth_m)) |>  # Remove rows with NA, NaN, or Inf in relevant columns
-  mutate(PAR_K_d = abs(map_dbl(list(lm(log_PAR ~ Depth_m, data = cur_data())), ~coef(.x)["Depth_m"])))
+  mutate(PAR_K_d = abs(map_dbl(list(lm(log_PAR ~ Depth_m, data = cur_data())), ~coef(.x)["Depth_m"])))|>
+  select(CastID, Date ,PAR_K_d)
+
+final_dataPARkd <- final_dataPARlog|>
+  left_join(PAR_KD_dataframe, by = c("CastID", "Date"), relationship = "many-to-many")
+
+#here is where I lost the data
 
 #now calculating light availability percentage from PAR_K_d
-final_data <- final_data |>
+final_dataLAP <- final_dataPARkd |>
   group_by(CastID)|>
   mutate(PAR_LAP = 100* exp(-PAR_K_d * Depth_m))
 
 ####Secchi PZ####
 #using secchi_PZ because the data for PAR between CTD and YSI is too different (for example look at PAR_profiles filtered and CTD filtered for 2018-5-4)
 #if I want to calculate PZ for specific years it would be ok but across all years no
-final_data <- final_data |>
+final_datasecPZ <- final_dataLAP |>
   mutate(secchi_PZ = 2.8*Secchi_m)|>
   relocate(secchi_PZ, .before = sec_LAP)|>
   relocate(PAR_LAP, .after = sec_LAP)
@@ -289,6 +289,7 @@ CTDfiltered <- CTD |>
   summarise(Temp_C = mean(Temp_C, na.rm = TRUE))|>
   filter(year(Date)>2016, year(Date)<2020)
 
+
 interpolated_data <- DCM_BVRdata |> 
   select(Date, Depth_m) |> 
   distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
@@ -298,17 +299,13 @@ interpolated_data <- DCM_BVRdata |>
   mutate(Temp_C = zoo::na.approx(Temp_C, x = Depth_m, na.rm = FALSE)) |>
   ungroup()
 
-final_data2 <- final_data %>% 
+final_datatemps <- final_datasecPZ %>% 
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
-final_data <- final_data2|>
+final_datatemps <- final_datatemps|>
   mutate(Temp_C = coalesce(Temp_C.x, Temp_C.y))|>
   select(-Temp_C.x, -Temp_C.y)
-
-looking <- final_data|>
-  filter(year(DateTime) == 2019)|>
-  select(Date, Depth_m, Temp_C)
 
 #### pH ####
 # Adding pH for 2017
@@ -329,11 +326,11 @@ interpolated_data <- DCM_BVRdata |>
   mutate(pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
   ungroup()
 
-final_data2 <- final_data %>% 
+final_datapH <- final_datatemps %>% 
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
-final_data <- final_data2|>
+final_datapH <- final_datapH|>
   mutate(interp_pH = coalesce(interp_pH, pH))|>
   select(-pH)
 
@@ -355,11 +352,11 @@ interpolated_data <- DCM_BVRdata |>
   mutate(pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
   ungroup()
 
-final_data2 <- final_data %>% 
+final_datapHfromPAR <- final_datapH %>% 
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
-final_data <- final_data2|>
+final_datapHfromPAR <- final_datapHfromPAR|>
   mutate(interp_pH = coalesce(interp_pH, pH))|>
   select(-pH)
 
@@ -382,11 +379,11 @@ interpolated_data <- DCM_BVRdata |>
   mutate(ORP_mV = zoo::na.approx(ORP_mV, x = Depth_m, na.rm = FALSE)) |>
   ungroup()
 
-final_data2 <- final_data %>% 
+final_dataORP <- final_datapHfromPAR %>% 
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
-final_data <- final_data2|>
+final_dataORP <- final_dataORP|>
   mutate(interp_ORP_mV = coalesce(interp_ORP_mV, ORP_mV))|>
   select(-ORP_mV)
 
@@ -422,7 +419,7 @@ interpolated_data <- DCM_BVRdata |>
   ungroup() # Ensure the grouping is removed for the final merge
 
 #Merge with DCM BVR data and keep only relevant rows
-final_data0 <- final_data %>%
+final_datanutrients <- final_dataORP %>%
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   select(-TN_ugL,-TP_ugL, -NH4_ugL, -NO3NO2_ugL,-SRP_ugL, -DOC_mgL, -DIC_mgL, -DC_mgL) %>% # Remove unnecessary columns
   filter(Depth_m %in% DCM_BVRdata$Depth_m)|> # Keep only rows with depths present in DCMdata
@@ -447,7 +444,7 @@ calculate_np_ratio <- function(tn, tp) {
   return(calcnp_ratio)
 }
 # added np ratio to dataframe
-final_data0 <- final_data0 %>%
+final_datanpratio <- final_datanutrients %>%
   mutate(np_ratio = calculate_np_ratio(interp_TN_ugL,interp_TP_ugL))|>
   relocate(np_ratio, .before = interp_TN_ugL)
 }
@@ -460,7 +457,7 @@ metdata0 <- metdata|>
   mutate(Date = as_date(DateTime))|>
   mutate(DOY = yday(Date))|>
   relocate(DOY, .before = DateTime)|>
-  relocate(Date, .before = Date)|>
+  relocate(Date, .before = DateTime)|>
   mutate(DateTime = ymd_hms(DateTime))
 
 #### Function for plotting meteorological variables #### 
@@ -479,8 +476,8 @@ metplots <- function(yearz, variable, maxx = NULL){
 }
 
 #### Precipitation ####
-metdata0 <- metdata0 |> 
-  group_by(DOY, year(DateTime)) |> 
+metdataprecip <- metdata0 |> 
+  group_by(Date, year(DateTime))|> 
   mutate(precip_daily = sum(Rain_Total_mm, na.rm = TRUE))|>
   ungroup()|>
   relocate(Date, .before = DateTime)|>
@@ -531,49 +528,33 @@ metdata0 <- metdata0 |>
 #print(temps)
 
 #### dailyaverage and dailymax for temps #### 
-metdata0 <- metdata0 |> 
-  group_by(DOY, year(DateTime)) |> 
+metdatatemps <- metdataprecip |> 
+  group_by(Date, year(DateTime))|> 
   mutate(daily_airtempavg = mean(AirTemp_C_Average, na.rm = TRUE))|>
   mutate(maxdaily_airtemp = max(AirTemp_C_Average, na.rm = TRUE))|>
   mutate(mindaily_airtemp = min(AirTemp_C_Average, na.rm = TRUE))|>
   ungroup()|>
-  relocate(daily_airtempavg, .before = AirTemp_C_Average)
-
-b1 <- metplots(2015, daily_airtempavg, maxx = 40)
-b2 <- metplots(2016, daily_airtempavg, maxx = 40)
-b3 <- metplots(2017, daily_airtempavg, maxx = 40)
-b4 <- metplots(2018, daily_airtempavg, maxx = 40)
-b5 <- metplots(2019, daily_airtempavg, maxx = 40)
-b6 <- metplots(2020, daily_airtempavg, maxx = 40)
-b7 <- metplots(2021, daily_airtempavg, maxx = 40)
-b8 <- metplots(2022, daily_airtempavg, maxx = 40)
-b9 <- metplots(2023, daily_airtempavg, maxx = 40)
+  relocate(daily_airtempavg, .before = AirTemp_C_Average)|>
+  relocate(maxdaily_airtemp, .before = AirTemp_C_Average)|>
+  relocate(mindaily_airtemp, .before = AirTemp_C_Average)|>
+  select(Date,daily_airtempavg, maxdaily_airtemp, mindaily_airtemp, precip_daily)
 
 
-dailyaveragetemps<- plot_grid(
-  b1, b2, b3,
-  b4, b5, b6, 
-  b7, b8, b9,
-  ncol = 3
-)
+#### precip and temp to final_datanpratio #### 
 
-print(dailyaveragetemps)
-
-#### precip and temp to final_data0 #### 
-
-metdata_join <- metdata0|>
-  select(Date, precip_daily, daily_airtempavg, maxdaily_airtemp, mindaily_airtemp)|>
+metdata_join <- metdatatemps |> 
+  group_by(Date) |> 
+  summarise(across(everything(), \(x) mean(x, na.rm = TRUE))) |> 
   distinct()
 
-final_data0 <- final_data0|>
-  left_join(metdata_join, by = c("Date"), relationship = "many-to-many")|>
-  filter(Date %in% final_data0$Date)
+final_datamet <- final_datanpratio|>
+  left_join(metdata_join, by = c("Date"), relationship = "many-to-many")
 
-
+  
 ####thermocline ####
 
 # Dataframe with thermocline
-thermocline_df <- final_data0 |>
+thermocline_df <- final_datamet |>
   group_by(CastID, Depth_m) |>
   summarize(Temp_C = mean(Temp_C, na.rm = TRUE)) |>
   ungroup() |>
@@ -587,11 +568,11 @@ thermocline_df <- final_data0 |>
     mixed.cutoff = 1
   )) 
 
-#add to final_data0
-final_datatest <- final_data0|>
+#add to frame
+final_datathermocline <- final_datanpratio|>
   left_join(thermocline_df, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")
 
-final_data0 <- final_datatest|>
+final_datathermo <- final_datathermocline|>
   group_by(CastID)|>
   fill(thermocline_depth, .direction = "updown")|>
   ungroup()|>
@@ -602,35 +583,35 @@ final_data0 <- final_datatest|>
 BVRbath <- bath|>
   filter(Reservoir == "BVR")
 
-final_data0 <- final_data0|>
+final_databuoy <- final_datathermo|>
   group_by(CastID)|>
   mutate(buoyancy_freq = c(buoyancy.freq(Temp_C, Depth_m), NA))|>#added for padding for the last value
   relocate(buoyancy_freq, .before = thermocline_depth)
 #need to make sure this makes sense
 
 ####Waterlevels####
+#skipping this for now I don't know what's wrong
+#wtrlvl2 <- wtrlvl|>
+#  mutate(Date = as.Date(DateTime))|>
+#  select(Date, WaterLevel_m)
 
-wtrlvl2 <- wtrlvl|>
-  mutate(Date = as.Date(DateTime))|>
-  select(Date, WaterLevel_m)
-
-final_data_water <- final_data0|>
-  left_join(wtrlvl2, by = c("Date"), relationship = "many-to-many")|>
-  mutate(
-    # For rows where 'value' from wtrlvl2 is NA after the join,
-    # find the closest date in wtrlvl2 and get the corresponding value
-    WaterLevel_m = ifelse(
-      is.na(WaterLevel_m),
-      sapply(Date, function(d) {
-        closest_date <- wtrlvl2$Date[which.min(abs(difftime(wtrlvl2$Date, d, units = "days")))]
-        wtrlvl2$WaterLevel_m[wtrlvl2$Date == closest_date]
-      }),
-      WaterLevel_m
-    )
-  )
+#final_data_water <- final_databuoy|>
+#  left_join(wtrlvl2, by = c("Date"), relationship = "many-to-many")|>
+#  mutate(
+#    # For rows where 'value' from wtrlvl2 is NA after the join,
+#    # find the closest date in wtrlvl2 and get the corresponding value
+#    WaterLevel_m = ifelse(
+#      is.na(WaterLevel_m),
+#      sapply(Date, function(d) {
+#        closest_date <- wtrlvl2$Date[which.min(abs(difftime(wtrlvl2$Date, d, units = "days")))]
+#        wtrlvl2$WaterLevel_m[wtrlvl2$Date == closest_date]
+#      }),
+#      WaterLevel_m
+#    )
+#  )
 
 #separate data frame for peak widths, depths, and magnitude calculations
-for_peaks <- final_data_water|>
+for_peaks <- final_databuoy|>
   select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
   group_by(Date, Depth_m) |>
   summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
@@ -642,22 +623,28 @@ for_peaks <- final_data_water|>
 peaks_calculated <- for_peaks %>%
   group_by(Date) %>%
   mutate(
-    blue_med = median(Bluegreens_ugL, na.rm = TRUE),  # Calculate the mean, excluding NA values if necessary
-    blue_sd = sd(Bluegreens_ugL, na.rm = TRUE), #calculate the standard deviation
-    blue_mean = mean(Bluegreens_ugL, na.rm = TRUE),
-    blue_mean_plus_sd = blue_mean + (blue_sd),
-    blue_sd = sd(Bluegreens_ugL, na.rm = TRUE), #calculate the standard deviation
-    peak.top = as.integer(Depth_m <= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),  # Create a binary indicator
+    blue_med = median(Bluegreens_ugL, na.rm = TRUE),  # Calculate the median, excluding NA values
+    blue_sd = sd(Bluegreens_ugL, na.rm = TRUE),       # Calculate the standard deviation
+    blue_mean = mean(Bluegreens_ugL, na.rm = TRUE),   # Calculate the mean
+    blue_mean_plus_sd = blue_mean + blue_sd,          # Calculate mean + sd
+    peak.top = as.integer(Depth_m <= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),  # Create binary indicator
     peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),
-    # Apply the condition: If Bluegreens_DCM_conc < 20, set peak.top and peak.bottom to 0
+    
+    # Apply condition: If Bluegreens_DCM_conc < 20, set peak.top and peak.bottom to 0
     peak.top = if_else(Bluegreens_DCM_conc < 20, 0, peak.top),
     peak.bottom = if_else(Bluegreens_DCM_conc < 20, 0, peak.bottom),
-    peak.top = if_else(peak.top == 1, Depth_m, 0),    # Replace peak.top with Depth_m where peak.top == 1
+    
+    # Replace peak.top and peak.bottom with Depth_m if indicator is 1
+    peak.top = if_else(peak.top == 1, Depth_m, 0),
     peak.bottom = if_else(peak.bottom == 1, Depth_m, 0),
-    #Get the minimum peak.top value excluding 0, and replace Inf with NA if all values are NA or 0
-    peak.top = min(peak.top[peak.top != 0], na.rm = TRUE),
-    # Get the maximum peak.bottom value excluding 0, and replace -Inf with NA if all values are NA or 0
-    peak.bottom = max(peak.bottom[peak.bottom != 0], na.rm = TRUE),
+    
+    # Get the minimum peak.top value, replace Inf with NA if all are NA or 0
+    peak.top = if_else(any(peak.top != 0), min(peak.top[peak.top != 0], na.rm = TRUE), NA_real_),
+    
+    # Get the maximum peak.bottom value, replace -Inf with NA if all are NA or 0
+    peak.bottom = if_else(any(peak.bottom != 0), max(peak.bottom[peak.bottom != 0], na.rm = TRUE), NA_real_),
+    
+    # Calculate peak width and replace Inf with NA
     peak.width = peak.bottom - peak.top,
     peak.width = if_else(is.infinite(peak.width), NA_real_, peak.width)
   ) %>%
@@ -676,7 +663,7 @@ final_data_peaks <- peaks_calculated|>
   ungroup()|>
   select(Date, Depth_m, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
 
-final_data0 <- final_data_water|>
+final_data0 <- final_databuoy|>
   left_join(final_data_peaks, by = c("Date", "Depth_m"))
 
 ####Schmidt_stability####
@@ -701,7 +688,7 @@ final_data0 <- final_data_water|>
 
 
 
-#make sure to change final dataframe to this
+####final dataframe####
 
 
 write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
@@ -714,6 +701,7 @@ write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 #removed buoyancy_freq for now bc had -inf will come back to
 
 ####daily DCM dataframe with daily averages####
+#removed water level for now
 DCM_final <- final_data0 |>
   filter(month(DateTime) >= 4, month(DateTime) < 10) |>
   filter(!(month(DateTime) == 8 & year(DateTime) == 2017 & Bluegreens_ugL < 35))|> #filter out weird drop in 2017
@@ -734,7 +722,7 @@ DCM_final <- final_data0 |>
   mutate(DCM_buoyancy_freq = if_else(DCM == TRUE, buoyancy_freq, NA_real_)) |>
   fill(DCM_buoyancy_freq, .direction = "updown") |>
   select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d,PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio, WaterLevel_m,DCM_interp_SFe_mgL,
+         sec_K_d,PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
          DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
@@ -744,7 +732,7 @@ DCM_final <- final_data0 |>
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
   ungroup()|>
   select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d, PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio, WaterLevel_m,DCM_interp_SFe_mgL,
+         sec_K_d, PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
          DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
@@ -769,7 +757,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2022, 2022)
+results <- correlations(2019, 2019)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -789,8 +777,9 @@ blooms <- final_data0|>
   
 #"2014-07-02" "2015-06-18" "2016-06-30" "2017-07-20" "2018-08-16" "2019-06-27" "2020-09-16" "2021-07-26" "2022-08-01" "2023-07-24"
 
+#change date to see correlations for the singular day that max was the biggest
 daily_cor <- final_data0|>
-  filter(Date %in% c("2022-08-01"))|>
+  filter(Date %in% c("2015-06-18"))|>
   select(Depth_m, Bluegreens_ugL, TotalConc_ugL, interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
          interp_TCa_mgL, interp_TCu_mgL, interp_SBa_mgL, interp_TBa_mgL,
          interp_CO2_umolL, interp_CH4_umolL, interp_DO_mgL,
@@ -802,15 +791,41 @@ daily_cor_result <- cor(daily_cor[,c(1:32)], method = "spearman", use = "pairwis
   
 daily_cor_result[lower.tri(daily_cor_result)] = ""
 
-####DCM depth boxplot####
+####timeframe determination based on flora data availability####
 
-library(ggplot2)
-library(lubridate)
-library(ggthemes)
+#days on the x axis, years on the y axis
+plot_dat <- final_data0 %>%
+  filter(!is.na(Bluegreens_ugL)) %>%
+  mutate(Year = year(DateTime), 
+         DayOfYear = yday(DateTime))|> # Extract year and day of the year
+  select(DateTime,Year, DayOfYear, Bluegreens_ugL, Depth_m)
+
+# Find the maximum Bluegreens_ugL value for each year
+max_bluegreen_per_year <- plot_dat %>%
+  group_by(year(DateTime)) %>%
+  slice(which.max(Bluegreens_ugL)) %>%
+  ungroup()
+
+# Plot: x-axis is DayOfYear, y-axis is Year, with a line and highlighted points
+ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
+  geom_line() +  # Line for each year
+  geom_point() +  # Data points
+  geom_point(data = max_bluegreen_per_year, aes(x = DayOfYear, y = as.factor(Year)), 
+             color = "red", size = 3) +  # Highlight max points in red
+  geom_text(data = max_bluegreen_per_year, 
+            aes(x = DayOfYear, y = as.factor(Year), 
+                label = paste0("Max: ", round(Bluegreens_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
+            vjust = 1.5, hjust = 0.5, color = "black", size = 3) +  # Smaller text and place below the point
+  theme_bw() +
+  labs(x = "Day of Year", y = "Year", title = "Fluoroprobe Data Availability") +
+  scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
+  theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
+
+####boxplots depth of DCM####
 
 # Filter and prepare the data for the years 2015-2023
 boxplot_Data <- DCM_final |>
-  filter(year(Date) >= 2014, year(Date) <= 2023, Bluegreens_DCM_conc > 30) |>
+  filter(Bluegreens_DCM_conc > 20) |>
   filter(month(Date) > 5, month(Date) < 9) |>
   mutate(Year = year(Date), Month = month(Date))
 
@@ -829,7 +844,7 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   labs(x = "Month", y = "DCM Depth", color = "Bluegreens ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-####DCM peak width box plots####
+####boxplot width of DCM####
 
 # Create the multi-panel boxplot with an overlay of colored points for Bluegreens_DCM_conc
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
@@ -841,7 +856,7 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   labs(x = "Month", y = "Peak Width", color = "Bluegreens ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-####DCM peak magnitude box plots####
+####boxplots magnitude of DCM####
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
                          y = peak.magnitude)) +
   geom_boxplot() +
