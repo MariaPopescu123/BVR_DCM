@@ -9,6 +9,7 @@ library(lubridate)
 dat <- read_csv("https://raw.githubusercontent.com/CareyLabVT/Reservoirs/master/Data/DataNotYetUploadedToEDI/Raw_fluoroprobe/fluoroprobe_L1.csv")
 
 #flora data all years
+
 dat <- read.csv("./current_df.csv")
 
 length(unique(dat$CastID)) 
@@ -24,11 +25,9 @@ casts <- dat %>%
 #change dates here
 sample_dat <- casts %>%
   filter(Reservoir == "BVR" & Site == 50 & Date %in%
-  c("2014-07-02","2015-06-18","2016-06-30","2017-07-20","2018-08-16",
-  "2019-06-27","2020-09-16","2021-07-26","2022-08-01","2023-07-24"))|>
+  c("2016-08-03","2016-08-04", "2016-08-11", "2016-08-23" ))|>
   mutate(SampleDepth = c(3.6), 
-         Date = factor(Date, levels = c("2014-07-02", "2015-06-18", "2016-06-30", "2017-07-20", "2018-08-16",
-                                        "2019-06-27", "2020-09-16", "2021-07-26", "2022-08-01", "2023-07-24")),
+         Date = factor(Date, levels = c("2016-08-03","2016-08-04", "2016-08-11", "2016-08-23")),
          Date = as.Date(as.character(Date)))  # Convert factor back to Date
 
 

@@ -612,6 +612,8 @@ final_databuoy <- final_datathermo|>
 
 #separate data frame for peak widths, depths, and magnitude calculations
 for_peaks <- final_databuoy|>
+  filter(!(month(DateTime) == 8 & year(DateTime) == 2017 & Bluegreens_ugL < 35))|> #filter out weird drop in 2017
+  filter(!(CastID == 395))|> #filter out weird drop in 2016
   select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
   group_by(Date, Depth_m) |>
   summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
@@ -631,8 +633,8 @@ peaks_calculated <- for_peaks %>%
     peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),
     
     # Apply condition: If Bluegreens_DCM_conc < 20, set peak.top and peak.bottom to 0
-    peak.top = if_else(Bluegreens_DCM_conc < 20, 0, peak.top),
-    peak.bottom = if_else(Bluegreens_DCM_conc < 20, 0, peak.bottom),
+    peak.top = if_else(Bluegreens_DCM_conc < 40, 0, peak.top),
+    peak.bottom = if_else(Bluegreens_DCM_conc < 40, 0, peak.bottom),
     
     # Replace peak.top and peak.bottom with Depth_m if indicator is 1
     peak.top = if_else(peak.top == 1, Depth_m, 0),
@@ -651,9 +653,8 @@ peaks_calculated <- for_peaks %>%
   ungroup()  # Ungroup after mutations
 
 looking <- peaks_calculated|>
-  filter(year(Date) == 2018, month(Date) == 07)|>
-  select(Date, Depth_m, Bluegreens_DCM_conc, Bluegreens_DCM_depth, Bluegreens_ugL, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width)
-
+  filter(year(Date) == 2016, month(Date) == 8)|>
+  select(Date, peak.top, peak.bottom, peak.width, blue_med, blue_mean, Bluegreens_ugL, Depth_m, Bluegreens_DCM_conc)
 
 ####Peak.magnitude####
 
@@ -690,8 +691,8 @@ final_data0 <- final_databuoy|>
 
 ####final dataframe####
 
-
-write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
+#
+#write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 
 
 
@@ -798,7 +799,7 @@ plot_dat <- final_data0 %>%
   filter(!is.na(Bluegreens_ugL)) %>%
   mutate(Year = year(DateTime), 
          DayOfYear = yday(DateTime))|> # Extract year and day of the year
-  select(DateTime,Year, DayOfYear, Bluegreens_ugL, Depth_m)
+  select(DateTime, Date, Year, DayOfYear, Bluegreens_ugL, Depth_m, peak.width, peak.magnitude)
 
 # Find the maximum Bluegreens_ugL value for each year
 max_bluegreen_per_year <- plot_dat %>%
@@ -820,6 +821,52 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   labs(x = "Day of Year", y = "Year", title = "Fluoroprobe Data Availability") +
   scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
   theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
+
+####DCM depth every year####
+# Find the maximum Bluegreens_ugL value for each day
+max_bluegreen_per_day <- plot_dat %>%
+  group_by(Date) %>%
+  slice(which.max(Bluegreens_ugL)) %>%
+  filter(month(Date) > 5, month(Date) < 9, Bluegreens_ugL >20)|>
+  ungroup()
+
+ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = Depth_m, group = Year)) +
+  geom_line() +
+  geom_point(data = max_bluegreen_per_year, aes(x = DayOfYear, y = Depth_m), 
+             color = "red", size = 3) +  # Highlight max points in red
+  geom_text(data = max_bluegreen_per_year, 
+            aes(x = DayOfYear, y = Depth_m, 
+                label = paste0("Max: ", round(Bluegreens_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
+            vjust = -.5, hjust = 0.5, color = "black", size = 3) +  # Adjust text position
+  theme_bw() +
+  labs(x = "Day of Year", y = "Depth (m)", title = "DCM Depths Across Years (Only Showing Data with Bluegreens > 20)") +
+  scale_y_reverse(limits = c(10, 0)) +  # Invert y-axis from 0 to 10
+  scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
+  facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
+  theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
+
+####peak width every year####
+
+ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = peak.width, group = Year)) +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Day of Year", y = "Peak Width (m)", title = "DCM Widths Across Years (Only Showing Data with Bluegreens > 20)") +
+  scale_y_continuous(limits = c(0, 4)) +  
+  scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
+  facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
+  theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
+
+####peak magnitude####
+ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = peak.magnitude, group = Year)) +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Day of Year", y = "Peak Magnitude (m)", title = "Peak Magnitude Across Years (Only Showing Data with Bluegreens > 20)") +
+  scale_y_continuous(limits = c(0, 150)) +  
+  scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
+  facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
+  theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
+
+
 
 ####boxplots depth of DCM####
 
@@ -844,6 +891,24 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   labs(x = "Month", y = "DCM Depth", color = "Bluegreens ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+#visualizing just one box per year
+label_data <- boxplot_Data %>%
+  group_by(Year) %>%
+  summarise(n = n())  # Calculate the number of data points per year
+
+# Plot with labels for the number of data points
+ggplot(boxplot_Data, aes(x = factor(Year), y = Bluegreens_DCM_depth)) +
+  geom_boxplot() +
+  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
+  ggtitle(label = "DCM Depths only displaying Bluegreens > 20") +
+  ylim(10, 0) +  # Set the y-axis limits, reversing the range
+  labs(x = "Year", y = "DCM Depth", color = "Bluegreens ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(data = label_data, aes(x = factor(Year), y = 0.5, label = paste0("n = ", n)), 
+            vjust = -0.5)  # Add labels at the top of each column
+
 ####boxplot width of DCM####
 
 # Create the multi-panel boxplot with an overlay of colored points for Bluegreens_DCM_conc
@@ -856,6 +921,18 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   labs(x = "Month", y = "Peak Width", color = "Bluegreens ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+#one box per year
+ggplot(boxplot_Data, aes(x = factor(Year), y = peak.width)) +
+  geom_boxplot() +
+  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  ggtitle(label = "Peak Width only displaying Bluegreens > 20")+
+  ylim(0, 5) +  # Set the y-axis limits, reversing the range
+  labs(x = "Year", y = "Peak Width", color = "Bluegreens ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
 ####boxplots magnitude of DCM####
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
                          y = peak.magnitude)) +
@@ -866,13 +943,15 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   labs(x = "Month", y = "Peak Magnitude", color = "Bluegreens ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-
-
-
-
-
-
-
+#visualizing just one box per year
+ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
+  geom_boxplot() +
+  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  ggtitle(label = "Peak Magnitudes only displaying Bluegreens > 20")+
+  ylim(0, 150) +  # Set the y-axis limits, reversing the range
+  labs(x = "Year", y = "Peak Magnitude", color = "Bluegreens ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #converting dataframe to timeseries object
 #but it says it has to be evenly spaced in time
