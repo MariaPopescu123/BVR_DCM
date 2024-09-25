@@ -58,7 +58,10 @@ DCM_BVRdata <- current_df %>%
   mutate(cyanosatDCM = ifelse(TotalConc_ugL == DCM_totalconc, Bluegreens_ugL, NA_real_))|>  #the concentration of cyanos at DCM
   group_by(CastID)|>
   mutate(Bluegreens_DCM_conc = max(Bluegreens_ugL, na.rm = TRUE))|> #concentration of bluegreens at bluegreens DCM
-  mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))
+  mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))|>
+  filter((hour(DateTime) <= 21), (hour(DateTime) > 5))|>
+  filter(!(CastID == 592))|> #filter out weird drop in 2017
+  filter(!(CastID == 395)) #weird drop in 2016
 
 DCM_BVRdata <- DCM_BVRdata %>%
   group_by(CastID) %>%
@@ -612,8 +615,6 @@ final_databuoy <- final_datathermo|>
 
 #separate data frame for peak widths, depths, and magnitude calculations
 for_peaks <- final_databuoy|>
-  filter(!(month(DateTime) == 8 & year(DateTime) == 2017 & Bluegreens_ugL < 35))|> #filter out weird drop in 2017
-  filter(!(CastID == 395))|> #filter out weird drop in 2016
   select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
   group_by(Date, Depth_m) |>
   summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
@@ -665,7 +666,8 @@ final_data_peaks <- peaks_calculated|>
   select(Date, Depth_m, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
 
 final_data0 <- final_databuoy|>
-  left_join(final_data_peaks, by = c("Date", "Depth_m"))
+  left_join(final_data_peaks, by = c("Date", "Depth_m"))|>
+  mutate(peak.width = if_else(peak.width < 3, peak.width, NA_real_))
 
 ####Schmidt_stability####
 
@@ -705,8 +707,6 @@ final_data0 <- final_databuoy|>
 #removed water level for now
 DCM_final <- final_data0 |>
   filter(month(DateTime) >= 4, month(DateTime) < 10) |>
-  filter(!(month(DateTime) == 8 & year(DateTime) == 2017 & Bluegreens_ugL < 35))|> #filter out weird drop in 2017
-  filter(!(CastID == 395))|> #filter out weird drop in 2016|>
   group_by(Date) |>
   mutate(across(c(interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
                   interp_TCa_mgL, interp_TCu_mgL, interp_SBa_mgL, interp_TBa_mgL,
@@ -732,7 +732,8 @@ DCM_final <- final_data0 |>
          DCM_interp_DC_mgL)|>
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
   ungroup()|>
-  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
+  mutate(DayOfYear = yday(Date))|>
+  select(Date, DayOfYear, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
          sec_K_d, PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
@@ -799,6 +800,8 @@ plot_dat <- final_data0 %>%
   filter(!is.na(Bluegreens_ugL)) %>%
   mutate(Year = year(DateTime), 
          DayOfYear = yday(DateTime))|> # Extract year and day of the year
+  filter(!(CastID == 395))|> #filter out weird drop in 2016
+  filter(!(CastID == 592))|>
   select(DateTime, Date, Year, DayOfYear, Bluegreens_ugL, Depth_m, peak.width, peak.magnitude)
 
 # Find the maximum Bluegreens_ugL value for each year
@@ -827,7 +830,7 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
 max_bluegreen_per_day <- plot_dat %>%
   group_by(Date) %>%
   slice(which.max(Bluegreens_ugL)) %>%
-  filter(month(Date) > 5, month(Date) < 9, Bluegreens_ugL >20)|>
+  filter(DayOfYear > 133, DayOfYear < 285, Bluegreens_ugL >20)|>
   ungroup()
 
 ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = Depth_m, group = Year)) +
@@ -870,10 +873,10 @@ ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = peak.magnitude, group = Yea
 
 ####boxplots depth of DCM####
 
-# Filter and prepare the data for the years 2015-2023
+#for june, july, august
 boxplot_Data <- DCM_final |>
   filter(Bluegreens_DCM_conc > 20) |>
-  filter(month(Date) > 5, month(Date) < 9) |>
+  filter(month(Date)>5, month(Date)<9) |>
   mutate(Year = year(Date), Month = month(Date))
 
 # Calculate max_legend_value for the color scale limits
@@ -892,6 +895,12 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #visualizing just one box per year
+
+boxplot_Data <- DCM_final |>
+  filter(Bluegreens_DCM_conc > 20) |>
+  filter(DayOfYear>133, DayOfYear<286) |>
+  mutate(Year = year(Date), Month = month(Date))
+
 label_data <- boxplot_Data %>%
   group_by(Year) %>%
   summarise(n = n())  # Calculate the number of data points per year
@@ -911,6 +920,12 @@ ggplot(boxplot_Data, aes(x = factor(Year), y = Bluegreens_DCM_depth)) +
 
 ####boxplot width of DCM####
 
+boxplot_Data <- DCM_final |>
+  filter(Bluegreens_DCM_conc > 20) |>
+  filter(month(Date)>5, month(Date)<9) |>
+  mutate(Year = year(Date), Month = month(Date))|>
+  filter(peak.width<3)
+
 # Create the multi-panel boxplot with an overlay of colored points for Bluegreens_DCM_conc
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
                          y = peak.width)) +
@@ -922,6 +937,11 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #one box per year
+boxplot_Data <- DCM_final |>
+  filter(Bluegreens_DCM_conc > 20) |>
+  filter(DayOfYear>133, DayOfYear<286) |>
+  mutate(Year = year(Date), Month = month(Date))
+
 ggplot(boxplot_Data, aes(x = factor(Year), y = peak.width)) +
   geom_boxplot() +
   geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
@@ -934,6 +954,14 @@ ggplot(boxplot_Data, aes(x = factor(Year), y = peak.width)) +
 
 
 ####boxplots magnitude of DCM####
+
+#for June-August
+
+boxplot_Data <- DCM_final |>
+    filter(Bluegreens_DCM_conc > 20) |>
+  filter(month(Date)>5, month(Date)<9) |>
+  mutate(Year = year(Date), Month = month(Date))
+
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
                          y = peak.magnitude)) +
   geom_boxplot() +
@@ -944,6 +972,12 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #visualizing just one box per year
+
+boxplot_Data <- DCM_final |>
+  filter(Bluegreens_DCM_conc > 20) |>
+  filter(DayOfYear>133, DayOfYear<286) |>
+  mutate(Year = year(Date), Month = month(Date))
+
 ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
   geom_boxplot() +
   geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
