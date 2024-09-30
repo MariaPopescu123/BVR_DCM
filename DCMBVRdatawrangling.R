@@ -276,11 +276,20 @@ final_dataLAP <- final_dataPARkd |>
   group_by(CastID)|>
   mutate(PAR_LAP = 100* exp(-PAR_K_d * Depth_m))
 
+####PAR PZ####
+
+
+
+final_dataPARPZ<- final_dataLAP|>
+  group_by(CastID)|>
+  mutate(PAR)
+
+
 ####Secchi PZ####
 #using secchi_PZ because the data for PAR between CTD and YSI is too different (for example look at PAR_profiles filtered and CTD filtered for 2018-5-4)
 #if I want to calculate PZ for specific years it would be ok but across all years no
-final_datasecPZ <- final_dataLAP |>
-  mutate(secchi_PZ = 2.8*Secchi_m)|>
+final_datasecPZ <- __________ |>
+  mutate(secchi_PZ = 2.7*Secchi_m)|>
   relocate(secchi_PZ, .before = sec_LAP)|>
   relocate(PAR_LAP, .after = sec_LAP)
 
@@ -665,14 +674,22 @@ final_data_peaks <- peaks_calculated|>
   ungroup()|>
   select(Date, Depth_m, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
 
-final_data0 <- final_databuoy|>
-  left_join(final_data_peaks, by = c("Date", "Depth_m"))|>
-  mutate(peak.width = if_else(peak.width < 3, peak.width, NA_real_))
+final_data0 <- final_databuoy |>
+  left_join(final_data_peaks, by = c("Date", "Depth_m")) |>
+  mutate(peak.width = if_else(peak.width < 3, peak.width, NA_real_)) |>
+  group_by(Date, CastID, Depth_m) |>
+  summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), 
+            .groups = 'drop')|>
+  mutate(DayOfYear = yday(Date))|>
+  filter(DayOfYear>133, DayOfYear<286) #choosing this timeframe based on "timeframe determination" section of this script
 
 ####Schmidt_stability####
 
 
-
+####light checks####
+looking<- final_data0|>
+  filter(year(Date) == 2016)|>
+  select(Date, Depth_m, sec_K_d, PAR_K_d, light_availability_fraction, secchi_PZ, sec_LAP, PAR_LAP, interp_PAR_umolm2s)
 
 #other variables to add 
 #Radiation
@@ -759,7 +776,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2019, 2019)
+results <- correlations(2016, 2016)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -924,7 +941,7 @@ boxplot_Data <- DCM_final |>
   filter(Bluegreens_DCM_conc > 20) |>
   filter(month(Date)>5, month(Date)<9) |>
   mutate(Year = year(Date), Month = month(Date))|>
-  filter(peak.width<3)
+  filter(peak.width<2.5)
 
 # Create the multi-panel boxplot with an overlay of colored points for Bluegreens_DCM_conc
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
@@ -940,17 +957,23 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
 boxplot_Data <- DCM_final |>
   filter(Bluegreens_DCM_conc > 20) |>
   filter(DayOfYear>133, DayOfYear<286) |>
-  mutate(Year = year(Date), Month = month(Date))
+  mutate(Year = year(Date), Month = month(Date))|>
+  filter(peak.width<2.5)
+
+label_data <- boxplot_Data %>%
+  group_by(Year) %>%
+  summarise(n = n())  # Calculate the number of data points per year
 
 ggplot(boxplot_Data, aes(x = factor(Year), y = peak.width)) +
   geom_boxplot() +
   geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  ggtitle(label = "Peak Width only displaying Bluegreens > 20")+
-  ylim(0, 5) +  # Set the y-axis limits, reversing the range
+  ggtitle(label = "Peak Width only displaying Bluegreens > 20") +
+  ylim(0, 5) +  # Set the y-axis limits
   labs(x = "Year", y = "Peak Width", color = "Bluegreens ugL") +  # Label the legend
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(data = label_data, aes(x = factor(Year), y = 4.5, label = paste0("n = ", n)), 
+            vjust = -0.5)  # Adjust y position for labels at the top
 
 
 ####boxplots magnitude of DCM####
