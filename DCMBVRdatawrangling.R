@@ -185,25 +185,6 @@ PAR_profiles_filtered <- PAR_profiles |>
             ORP_mV = mean(ORP_mV, na.rm = TRUE),
             pH = mean(pH, na.rm = TRUE))
 
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(PAR_profiles_filtered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(interp_PAR_umolm2s = zoo::na.approx(PAR_umolm2s, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DO_mgL = zoo::na.approx(DO_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DOsat_percent = zoo::na.approx(DOsat_percent, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_Cond_uScm = zoo::na.approx(Cond_uScm, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_ORP_mV = zoo::na.approx(ORP_mV, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
-  ungroup()|> # Ensure the grouping is removed for the final merge'
-  filter(year(Date) < 2018)
-
-final_data <- DCM_BVRwmetalsghgssecchilight %>%
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  select(-DO_mgL, -PAR_umolm2s, -DOsat_percent, -Cond_uScm, -ORP_mV, -pH) %>% # Remove unnecessary columns
-  filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
 CTDfiltered <- CTD|>
   filter(Reservoir == "BVR", Site == 50)|>
@@ -214,13 +195,33 @@ CTDfiltered <- CTD|>
             DOsat_percent = mean(DOsat_percent, na.rm = TRUE),
             Cond_uScm = mean(Cond_uScm, na.rm = TRUE),
             ORP_mV = mean(ORP_mV, na.rm = TRUE),
-            pH = mean(pH, na.rm = TRUE))|>
-  filter(year(Date) > 2017)
+            pH = mean(pH, na.rm = TRUE))
+
+#now join both together
+combined_df <- full_join(PAR_profiles_filtered, CTDfiltered, by = c("Date", "Depth_m")) %>%
+  arrange(Date)
+
+combined_df2<- combined_df|>
+  mutate(PAR_umolm2s = coalesce(PAR_umolm2s.x, PAR_umolm2s.y)) %>%
+  mutate(DO_mgL = coalesce(DO_mgL.x, DO_mgL.y)) %>%
+  mutate(DOsat_percent = coalesce(DOsat_percent.x, DOsat_percent.y)) %>%
+  mutate(Cond_uScm = coalesce(Cond_uScm.x, Cond_uScm.y)) %>%
+  mutate(ORP_mV = coalesce(ORP_mV.x, ORP_mV.y)) %>%
+  mutate(pH = coalesce(pH.x, pH.y))|>
+  select(-PAR_umolm2s.x, -PAR_umolm2s.y,
+         -DO_mgL.x, -DO_mgL.y,
+         -DOsat_percent.x, -DOsat_percent.y,
+         -Cond_uScm.x, -Cond_uScm.y, 
+         -ORP_mV.x, -ORP_mV.y, 
+         -pH.x, -pH.y)|>
+  filter(year(Date) != 2013)
+
+#interpolate and calculate Kd for the days that we do have surface PAR
 
 interpolated_data <- DCM_BVRdata |> 
   select(Date, Depth_m) |> 
   distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(CTDfiltered) |> 
+  bind_rows(combined_df2) |> 
   arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
   group_by(Date)  |> # Group data by Date for interpolation
   mutate(interp_PAR_umolm2s = zoo::na.approx(PAR_umolm2s, x = Depth_m, na.rm = FALSE)) |>
@@ -231,26 +232,24 @@ interpolated_data <- DCM_BVRdata |>
   mutate(interp_pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
   ungroup()
 
-final_dataCTD <- final_data %>% #remember to remove the 2 after this works so i can call it in the next thing
+final_PAR <- DCM_BVRwmetalsghgssecchilight %>%
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   select(-DO_mgL, -PAR_umolm2s, -DOsat_percent, -Cond_uScm, -ORP_mV, -pH) %>% # Remove unnecessary columns
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
-final_dataCTDmerged <- final_dataCTD|>
-  mutate(interp_PAR_umolm2s = coalesce(interp_PAR_umolm2s.x, interp_PAR_umolm2s.y)) %>%
-  mutate(interp_DO_mgL = coalesce(interp_DO_mgL.x, interp_DO_mgL.y)) %>%
-  mutate(interp_DOsat_percent = coalesce(interp_DOsat_percent.x, interp_DOsat_percent.y)) %>%
-  mutate(interp_Cond_uScm = coalesce(interp_Cond_uScm.x, interp_Cond_uScm.y)) %>%
-  mutate(interp_ORP_mV = coalesce(interp_ORP_mV.x, interp_ORP_mV.y)) %>%
-  mutate(interp_pH = coalesce(interp_pH.x, interp_pH.y))|>
-  select(-interp_PAR_umolm2s.x, -interp_PAR_umolm2s.y,
-         -interp_DO_mgL.x, -interp_DO_mgL.y,
-         -interp_DOsat_percent.x, -interp_DOsat_percent.y,
-         -interp_Cond_uScm.x, -interp_Cond_uScm.y, 
-         -interp_ORP_mV.x, -interp_ORP_mV.y, 
-         -interp_pH.x, -interp_pH.y)|>
-  relocate(Reservoir, .before = 1)|>
-  relocate(Site, .before = 1)
+
+PAR_Kd_PZ<- final_PAR|>
+  group_by(CastID)|>
+  mutate(PAR_kd = (log(lag(interp_PAR_umolm2s)) - log(interp_PAR_umolm2s)) / (Depth_m - lag(Depth_m)))|>
+  mutate(mean_Kd = mean(PAR_kd, na.rm = TRUE))|>
+  mutate(PAR_PZ = log(100) / mean_Kd)
+
+
+
+
+
+####NEED TO FIX THE LIGHT SECTION FROM HERE ON####
+#NEEDS TO END WITH FINAL_DATACTDMERGED
 
 ####calculating PAR_LAP (Light availability percentage using interpolated PAR)####
 final_dataCTDmerged$log_PAR <- log(final_dataCTDmerged$interp_PAR_umolm2s)
