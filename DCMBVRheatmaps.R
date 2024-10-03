@@ -2,34 +2,53 @@
 #Maria Popescu
 #alot of help writing the function from Mary
 
-
+#CODE NOT WORKING BECAUSE SITE. NEED TO REMOVE SITE
 #check to make sure 
 
 final_data0 <- read.csv("./final_data0.csv")
 
+final_data0<- final_data0|>
+  mutate(Reservoir = "BVR")|>
+  mutate(DateTime = Date)
+
 
 #need to change these values to reflect Bluegreens not just chla (which it currently is)
 # Chlorophyll data for the line visualizing chl max on heatmaps
-chlorophyll_data <- final_data0 |>
-  filter(DCM_totalconc > 20)|> #choosing greater than 20 as the bloom
-  filter(DCM == TRUE)|>
-  filter(!(month(DateTime) == 8 & year(DateTime) == 2017 & Bluegreens_ugL < 35))|> #filter out weird drop in 2017
-  filter(!(CastID == 395)) #filter out weird drop in 2016
+
+chlorophyll_data <- final_data0 %>%
+  select(Date, Depth_m, Bluegreens_ugL)|>
+  mutate(DayOfYear = yday(Date))|>
+  group_by(Date) %>%
+  slice(which.max(Bluegreens_ugL)) %>%
+  ungroup()|>
+  mutate(Reservoir = "BVR")|>
+  mutate(DateTime = Date)|> #no actual time
+  filter(DayOfYear > 133, DayOfYear < 285, Bluegreens_ugL >20)|>
+  filter(!(month(Date) == 8 & year(Date) == 2017 & Bluegreens_ugL < 35)) #weird drop here
 
 
 ####heatmaps####
 # Preparing separate data frame so I can add a line where the thermocline is (removed line from graph but can add it back in)
 thermocline_df <- final_data0|>
-  select(Reservoir, Date, DateTime, thermocline_depth, Temp_C, Depth_m, Site)
+  mutate(Reservoir = "BVR")|>
+  mutate(DateTime = Date)|> #this doesn't actually have the time but I need it for the rest of the script
+  select(Reservoir, Date, thermocline_depth, Temp_C, Depth_m, Site)
+
+Photic_zone<- final_data0|>
+  select(Date, PAR_PZ)|>
+  group_by(Date)|>
+  mutate(PAR_PZ = mean(PAR_PZ))|>
+  mutate(DOY = yday(Date))
+  
 
 #might be interesting to add lines for other phytos and see how they compare
 
-flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_data = NA, max_legend_value = NA, thermocline_df = NA)
+flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_data = NA, max_legend_value = NA, thermocline_df = NA, Photic_zone = NA)
 {
   
   #subset to relevant data
   fp <- fp_data %>%
-    filter(Reservoir == reservoir & year(DateTime) == year & Site == site) %>%
+    filter(Reservoir == reservoir & year(DateTime) == year) %>%
     select(CastID, DateTime, Depth_m, {{z}}) 
   
   #slice by depth for each reservoir
@@ -132,17 +151,22 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
   
   # Prepare chlorophyll maxima data for line
   chlorophyll_data <- chlorophyll_data %>%
-    filter(Reservoir == reservoir & year(DateTime) == year & Site == site) %>%
+    filter(Reservoir == reservoir & year(DateTime) == year & site == site) %>%
     mutate(DOY = yday(DateTime))|>
     filter(DOY <= max(fp_new$DOY) & DOY >= min(fp_new$DOY))
   
+  Photic_zone <- Photic_zone %>%
+    filter(year(Date) == year) %>%
+    mutate(DOY = yday(Date))
+
   p1 <- ggplot(interp, aes(x=x, y=y))+
     geom_raster(aes(fill=z))+
     scale_y_reverse(expand = c(0,0))+
     scale_x_continuous(expand = c(0, 0), breaks = seq(1, 366, by = 30), 
                        labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
     scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +
-    geom_path(data = chlorophyll_data, aes(x = DOY, y = DCM_depth, color = Bluegreens_ugL), size = 1.2) + # Color line by Bluegreens_ugL
+    geom_path(data = chlorophyll_data, aes(x = DOY, y = Depth_m, color = Bluegreens_ugL), size = 1.2) + # Color line by Bluegreens_ugL
+    geom_path(data = Photic_zone, aes(x = DOY, y = PAR_PZ), size = 1.2)+
     scale_color_gradient(low = "blue", high = "red") + # Adjust color scale as needed
     labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
     theme_bw()+
@@ -160,8 +184,8 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   
   b1 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2014, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2015, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2016, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2015, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data, Photic_zone = Photic_zone)
+  b3 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2016, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data, Photic_zone = Photic_zone)
   b4 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2017, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   b5 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2018, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   b6 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2019, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
@@ -363,7 +387,7 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_PAR_umolm2s))|>  # Remove rows with NA in interp_PAR_umolm2s
-    filter(month(DateTime) < 11)
+    filter(month(Date) < 11)
   
   
   #only one day b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data)

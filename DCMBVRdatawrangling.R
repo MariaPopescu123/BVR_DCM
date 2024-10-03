@@ -172,7 +172,7 @@ DCM_BVRwmetalsghgssecchilight <- DCM_BVRwmetalsghgssecchi |>
   mutate(sec_LAP = light_availability_fraction * 100) #light availability percentage calculated from secchi
 }
 
-####Adding PAR, DO, DOsat_percent, cond, ORP, pH ####
+####Adding PAR, DO, DOsat_percent, cond, ORP, pH, temp ####
 
 PAR_profiles_filtered <- PAR_profiles |>
   filter(Reservoir == "BVR", Site == 50)|>
@@ -183,27 +183,9 @@ PAR_profiles_filtered <- PAR_profiles |>
             DOsat_percent = mean(DOsat_percent, na.rm = TRUE),
             Cond_uScm = mean(Cond_uScm, na.rm = TRUE),
             ORP_mV = mean(ORP_mV, na.rm = TRUE),
-            pH = mean(pH, na.rm = TRUE))
+            pH = mean(pH, na.rm = TRUE),
+            Temp_C = mean(Temp_C, na.rm = TRUE))
 
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(PAR_profiles_filtered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(interp_PAR_umolm2s = zoo::na.approx(PAR_umolm2s, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DO_mgL = zoo::na.approx(DO_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DOsat_percent = zoo::na.approx(DOsat_percent, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_Cond_uScm = zoo::na.approx(Cond_uScm, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_ORP_mV = zoo::na.approx(ORP_mV, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
-  ungroup()|> # Ensure the grouping is removed for the final merge'
-  filter(year(Date) < 2018)
-
-final_data <- DCM_BVRwmetalsghgssecchilight %>%
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  select(-DO_mgL, -PAR_umolm2s, -DOsat_percent, -Cond_uScm, -ORP_mV, -pH) %>% # Remove unnecessary columns
-  filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
 CTDfiltered <- CTD|>
   filter(Reservoir == "BVR", Site == 50)|>
@@ -214,13 +196,36 @@ CTDfiltered <- CTD|>
             DOsat_percent = mean(DOsat_percent, na.rm = TRUE),
             Cond_uScm = mean(Cond_uScm, na.rm = TRUE),
             ORP_mV = mean(ORP_mV, na.rm = TRUE),
-            pH = mean(pH, na.rm = TRUE))|>
-  filter(year(Date) > 2017)
+            pH = mean(pH, na.rm = TRUE),
+            Temp_C = mean(Temp_C))
+
+#now join both together
+combined_df <- full_join(PAR_profiles_filtered, CTDfiltered, by = c("Date", "Depth_m")) %>%
+  arrange(Date)
+
+combined_df2<- combined_df|>
+  filter(year(Date) != 2013)|>
+  mutate(PAR_umolm2s = coalesce(PAR_umolm2s.x, PAR_umolm2s.y)) %>%
+  mutate(DO_mgL = coalesce(DO_mgL.x, DO_mgL.y)) %>%
+  mutate(DOsat_percent = coalesce(DOsat_percent.x, DOsat_percent.y)) %>%
+  mutate(Cond_uScm = coalesce(Cond_uScm.x, Cond_uScm.y)) %>%
+  mutate(ORP_mV = coalesce(ORP_mV.x, ORP_mV.y)) %>%
+  mutate(pH = coalesce(pH.x, pH.y))|>
+  mutate(Temp_C = coalesce(Temp_C.x, Temp_C.y))|>
+  select(-PAR_umolm2s.x, -PAR_umolm2s.y,
+         -DO_mgL.x, -DO_mgL.y,
+         -DOsat_percent.x, -DOsat_percent.y,
+         -Cond_uScm.x, -Cond_uScm.y, 
+         -ORP_mV.x, -ORP_mV.y, 
+         -pH.x, -pH.y,
+         -Temp_C.x, -Temp_C.y)
+
+#interpolate and calculate Kd for the days that we do have surface PAR
 
 interpolated_data <- DCM_BVRdata |> 
   select(Date, Depth_m) |> 
   distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(CTDfiltered) |> 
+  bind_rows(combined_df2) |> 
   arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
   group_by(Date)  |> # Group data by Date for interpolation
   mutate(interp_PAR_umolm2s = zoo::na.approx(PAR_umolm2s, x = Depth_m, na.rm = FALSE)) |>
@@ -229,175 +234,37 @@ interpolated_data <- DCM_BVRdata |>
   mutate(interp_Cond_uScm = zoo::na.approx(Cond_uScm, x = Depth_m, na.rm = FALSE)) |>
   mutate(interp_ORP_mV = zoo::na.approx(ORP_mV, x = Depth_m, na.rm = FALSE)) |>
   mutate(interp_pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
-  ungroup()
+  mutate(interp_Temp_C = zoo::na.approx(Temp_C, x = Depth_m, na.rm = FALSE)) |>
+  ungroup()|>
+  select(-DO_mgL, -PAR_umolm2s, -DOsat_percent, -Cond_uScm, -ORP_mV, -pH, -Temp_C)
 
-final_dataCTD <- final_data %>% #remember to remove the 2 after this works so i can call it in the next thing
+
+final_PAR <- DCM_BVRwmetalsghgssecchilight %>%
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  select(-DO_mgL, -PAR_umolm2s, -DOsat_percent, -Cond_uScm, -ORP_mV, -pH) %>% # Remove unnecessary columns
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
-final_dataCTDmerged <- final_dataCTD|>
-  mutate(interp_PAR_umolm2s = coalesce(interp_PAR_umolm2s.x, interp_PAR_umolm2s.y)) %>%
-  mutate(interp_DO_mgL = coalesce(interp_DO_mgL.x, interp_DO_mgL.y)) %>%
-  mutate(interp_DOsat_percent = coalesce(interp_DOsat_percent.x, interp_DOsat_percent.y)) %>%
-  mutate(interp_Cond_uScm = coalesce(interp_Cond_uScm.x, interp_Cond_uScm.y)) %>%
-  mutate(interp_ORP_mV = coalesce(interp_ORP_mV.x, interp_ORP_mV.y)) %>%
-  mutate(interp_pH = coalesce(interp_pH.x, interp_pH.y))|>
-  select(-interp_PAR_umolm2s.x, -interp_PAR_umolm2s.y,
-         -interp_DO_mgL.x, -interp_DO_mgL.y,
-         -interp_DOsat_percent.x, -interp_DOsat_percent.y,
-         -interp_Cond_uScm.x, -interp_Cond_uScm.y, 
-         -interp_ORP_mV.x, -interp_ORP_mV.y, 
-         -interp_pH.x, -interp_pH.y)|>
-  relocate(Reservoir, .before = 1)|>
-  relocate(Site, .before = 1)
 
-####calculating PAR_LAP (Light availability percentage using interpolated PAR)####
-final_dataCTDmerged$log_PAR <- log(final_dataCTDmerged$interp_PAR_umolm2s)
-
-final_dataPARlog <- final_dataCTDmerged|>
-  relocate(log_PAR, .after = interp_PAR_umolm2s)
-
-#first calculating new Kd value from provided PAR (that I interpolated from CTD data and PAR_profiles)
-PAR_KD_dataframe <- final_dataPARlog |> 
-  group_by(CastID) |> 
-  filter(!all(is.na(log_PAR)) & !all(is.na(Depth_m))) |>  # Remove groups with all NAs
-  filter(!is.na(log_PAR) & !is.na(Depth_m) & is.finite(log_PAR) & is.finite(Depth_m)) |>  # Remove rows with NA, NaN, or Inf in relevant columns
-  mutate(PAR_K_d = abs(map_dbl(list(lm(log_PAR ~ Depth_m, data = cur_data())), ~coef(.x)["Depth_m"])))|>
-  select(CastID, Date ,PAR_K_d)
-
-final_dataPARkd <- final_dataPARlog|>
-  left_join(PAR_KD_dataframe, by = c("CastID", "Date"), relationship = "many-to-many")
-
-#here is where I lost the data
+PAR_Kd_PZ<- final_PAR|>
+  group_by(CastID)|>
+  mutate(PAR_kd = (log(lag(interp_PAR_umolm2s)) - log(interp_PAR_umolm2s)) / (Depth_m - lag(Depth_m)))|>
+  mutate(mean_Kd = mean(PAR_kd, na.rm = TRUE))|>
+  mutate(PAR_PZ = log(100) / mean_Kd)
 
 #now calculating light availability percentage from PAR_K_d
-final_dataLAP <- final_dataPARkd |>
+final_dataLAP <- PAR_Kd_PZ |>
   group_by(CastID)|>
-  mutate(PAR_LAP = 100* exp(-PAR_K_d * Depth_m))
-
-####PAR PZ####
-
-
-
-final_dataPARPZ<- final_dataLAP|>
-  group_by(CastID)|>
-  mutate(PAR)
-
+  mutate(PAR_LAP = 100* exp(-PAR_kd * Depth_m))
 
 ####Secchi PZ####
 #using secchi_PZ because the data for PAR between CTD and YSI is too different (for example look at PAR_profiles filtered and CTD filtered for 2018-5-4)
 #if I want to calculate PZ for specific years it would be ok but across all years no
-final_datasecPZ <- __________ |>
+final_datasecPZ <- final_dataLAP |>
   mutate(secchi_PZ = 2.7*Secchi_m)|>
   relocate(secchi_PZ, .before = sec_LAP)|>
-  relocate(PAR_LAP, .after = sec_LAP)
-
-####Temps from 2017-2019  ####
-CTDfiltered <- CTD |>
-  filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(Temp_C = mean(Temp_C, na.rm = TRUE))|>
-  filter(year(Date)>2016, year(Date)<2020)
-
-
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(CTDfiltered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(Temp_C = zoo::na.approx(Temp_C, x = Depth_m, na.rm = FALSE)) |>
-  ungroup()
-
-final_datatemps <- final_datasecPZ %>% 
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
-
-final_datatemps <- final_datatemps|>
-  mutate(Temp_C = coalesce(Temp_C.x, Temp_C.y))|>
-  select(-Temp_C.x, -Temp_C.y)
-
-#### pH ####
-# Adding pH for 2017
-CTDfiltered <- CTD |>
-  filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(pH = mean(pH, na.rm = TRUE))|>
-  filter(year(Date) == 2017|year(Date) == 2020)|>
-  filter(!is.na(pH))
-
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(CTDfiltered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
-  ungroup()
-
-final_datapH <- final_datatemps %>% 
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
-
-final_datapH <- final_datapH|>
-  mutate(interp_pH = coalesce(interp_pH, pH))|>
-  select(-pH)
-
-# pH for 2021 from the PAR profiles  #
-PAR_profiles_filtered <- PAR_profiles |>
-  filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(pH = mean(pH, na.rm = TRUE))|>
-  filter(year(Date) == 2021)|>
-  filter(!is.na(pH))
-
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(PAR_profiles_filtered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
-  ungroup()
-
-final_datapHfromPAR <- final_datapH %>% 
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
-
-final_datapHfromPAR <- final_datapHfromPAR|>
-  mutate(interp_pH = coalesce(interp_pH, pH))|>
-  select(-pH)
-
-#### ORP  ####
-#there just is no data for 2021
-CTDfiltered <- CTD |>
-  filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(ORP_mV = mean(ORP_mV, na.rm = TRUE))|>
-  filter(year(Date) == 2017|year(Date) == 2021)|>
-  filter(!is.na(ORP_mV))
-
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(CTDfiltered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(ORP_mV = zoo::na.approx(ORP_mV, x = Depth_m, na.rm = FALSE)) |>
-  ungroup()
-
-final_dataORP <- final_datapHfromPAR %>% 
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
-
-final_dataORP <- final_dataORP|>
-  mutate(interp_ORP_mV = coalesce(interp_ORP_mV, ORP_mV))|>
-  select(-ORP_mV)
+  relocate(PAR_LAP, .after = sec_LAP)|>
+  group_by(Date, Depth_m, CastID)|>
+  mutate(Temp_C = rowMeans(cbind(Temp_C, interp_Temp_C), na.rm = TRUE))|>
+  select(-interp_Temp_C)
 
 #### Nutrients  ####
 {
@@ -431,7 +298,7 @@ interpolated_data <- DCM_BVRdata |>
   ungroup() # Ensure the grouping is removed for the final merge
 
 #Merge with DCM BVR data and keep only relevant rows
-final_datanutrients <- final_dataORP %>%
+final_datanutrients <- final_datasecPZ %>%
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   select(-TN_ugL,-TP_ugL, -NH4_ugL, -NO3NO2_ugL,-SRP_ugL, -DOC_mgL, -DIC_mgL, -DC_mgL) %>% # Remove unnecessary columns
   filter(Depth_m %in% DCM_BVRdata$Depth_m)|> # Keep only rows with depths present in DCMdata
@@ -603,24 +470,26 @@ final_databuoy <- final_datathermo|>
 
 ####Waterlevels####
 #skipping this for now I don't know what's wrong
-#wtrlvl2 <- wtrlvl|>
-#  mutate(Date = as.Date(DateTime))|>
-#  select(Date, WaterLevel_m)
 
-#final_data_water <- final_databuoy|>
-#  left_join(wtrlvl2, by = c("Date"), relationship = "many-to-many")|>
-#  mutate(
-#    # For rows where 'value' from wtrlvl2 is NA after the join,
-#    # find the closest date in wtrlvl2 and get the corresponding value
-#    WaterLevel_m = ifelse(
-#      is.na(WaterLevel_m),
-#      sapply(Date, function(d) {
-#        closest_date <- wtrlvl2$Date[which.min(abs(difftime(wtrlvl2$Date, d, units = "days")))]
-#        wtrlvl2$WaterLevel_m[wtrlvl2$Date == closest_date]
-#      }),
-#      WaterLevel_m
-#    )
-#  )
+
+wtrlvl2 <- wtrlvl|>
+  mutate(Date = as.Date(DateTime))|>
+  select(Date, WaterLevel_m)
+
+final_data_water <- final_databuoy|>
+  left_join(wtrlvl2, by = c("Date"), relationship = "many-to-many")|>
+  mutate(
+    # For rows where 'value' from wtrlvl2 is NA after the join,
+    # find the closest date in wtrlvl2 and get the corresponding value
+    WaterLevel_m = ifelse(
+      is.na(WaterLevel_m),
+      sapply(Date, function(d) {
+        closest_date <- wtrlvl2$Date[which.min(abs(difftime(wtrlvl2$Date, d, units = "days")))]
+        wtrlvl2$WaterLevel_m[wtrlvl2$Date == closest_date]
+      }),
+      WaterLevel_m
+    )
+  )
 
 #separate data frame for peak widths, depths, and magnitude calculations
 for_peaks <- final_databuoy|>
@@ -681,15 +550,13 @@ final_data0 <- final_databuoy |>
   summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), 
             .groups = 'drop')|>
   mutate(DayOfYear = yday(Date))|>
-  filter(DayOfYear>133, DayOfYear<286) #choosing this timeframe based on "timeframe determination" section of this script
+  filter(DayOfYear>133, DayOfYear<286)|> #choosing this timeframe based on "timeframe determination" section of this script
+  mutate(DCM = if_else(Depth_m == DCM_depth, TRUE, FALSE))
+
+looking <- final_data0|>
+  select(Date, Depth_m, DCM_depth, DCM)
 
 ####Schmidt_stability####
-
-
-####light checks####
-looking<- final_data0|>
-  filter(year(Date) == 2016)|>
-  select(Date, Depth_m, sec_K_d, PAR_K_d, light_availability_fraction, secchi_PZ, sec_LAP, PAR_LAP, interp_PAR_umolm2s)
 
 #other variables to add 
 #Radiation
@@ -711,7 +578,7 @@ looking<- final_data0|>
 ####final dataframe####
 
 #
-#write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
+write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 
 
 
@@ -723,7 +590,7 @@ looking<- final_data0|>
 ####daily DCM dataframe with daily averages####
 #removed water level for now
 DCM_final <- final_data0 |>
-  filter(month(DateTime) >= 4, month(DateTime) < 10) |>
+  filter(month(Date) >= 4, month(Date) < 10) |>
   group_by(Date) |>
   mutate(across(c(interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
                   interp_TCa_mgL, interp_TCu_mgL, interp_SBa_mgL, interp_TBa_mgL,
@@ -740,7 +607,7 @@ DCM_final <- final_data0 |>
   mutate(DCM_buoyancy_freq = if_else(DCM == TRUE, buoyancy_freq, NA_real_)) |>
   fill(DCM_buoyancy_freq, .direction = "updown") |>
   select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d,PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
+         sec_K_d,PAR_PZ, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
          DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
@@ -750,8 +617,8 @@ DCM_final <- final_data0 |>
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
   ungroup()|>
   mutate(DayOfYear = yday(Date))|>
-  select(Date, DayOfYear, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d, PAR_K_d, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
+  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
+         sec_K_d,PAR_PZ, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
          DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
@@ -768,7 +635,7 @@ correlations <- function(year1, year2) {
     filter(month(Date) > 4, month(Date) < 10) |>
     filter(Bluegreens_DCM_conc > 20)
   
-  drivers_cor <- cor(DCM_final_cor[,c(2:38)],
+  drivers_cor <- cor(DCM_final_cor[,c(2:37)],
                      method = "spearman", use = "pairwise.complete.obs")
  
   list(drivers_cor = drivers_cor, DCM_final_cor = DCM_final_cor)
@@ -776,10 +643,34 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2016, 2016)
+results <- correlations(2015,2023)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
+final_data_cor_results <- results$drivers_cor
+
+final_data_cor_results[lower.tri(final_data_cor_results)] <- NA
+diag(final_data_cor_results) <- NA
+
+# Flatten the correlation matrix into a long format
+final_data_cor_long <- as.data.frame(as.table(final_data_cor_results)) |>
+  filter(!is.na(Freq))  # Remove NAs introduced by setting the lower triangle to NA
+
+final_data_cor_long$Freq <- as.numeric(as.character(final_data_cor_long$Freq))
+
+# Filter correlations based on the cutoff of 0.65
+significant_correlations <- final_data_cor_long |>
+  filter(abs(Freq) >= 0.65) |>  # Apply cutoff for correlation
+  arrange(desc(abs(Freq)))# Sort by absolute correlation values
+
+# Rename columns for clarity
+colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation")
+
+# View the final table of correlations
+significant_correlations
+
+
+
 
 
 ####daily correlation, for choosing specific day####
