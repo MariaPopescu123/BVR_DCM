@@ -578,7 +578,7 @@ looking <- final_data0|>
 ####final dataframe####
 
 #
-write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
+#write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 
 
 
@@ -590,6 +590,7 @@ write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 ####daily DCM dataframe with daily averages####
 #removed water level for now
 DCM_final <- final_data0 |>
+  mutate(Date = as.Date(Date))|>
   filter(month(Date) >= 4, month(Date) < 10) |>
   group_by(Date) |>
   mutate(across(c(interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
@@ -618,10 +619,10 @@ DCM_final <- final_data0 |>
   ungroup()|>
   mutate(DayOfYear = yday(Date))|>
   select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d,PAR_PZ, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
+         sec_K_d, secchi_PZ, PAR_PZ, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
-         DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
+         DCM_interp_CO2_umolL, DCM_interp_CH4_umolL, DCM_interp_DO_mgL,
          DCM_interp_DOsat_percent, DCM_interp_Cond_uScm, DCM_interp_ORP_mV, DCM_interp_pH, DCM_interp_TN_ugL, DCM_interp_TP_ugL, 
          DCM_interp_NH4_ugL, DCM_interp_NO3NO2_ugL, DCM_interp_SRP_ugL, DCM_interp_DOC_mgL, DCM_interp_DIC_mgL, 
          DCM_interp_DC_mgL)
@@ -643,7 +644,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2015,2023)
+results <- correlations(2017, 2017)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -658,13 +659,11 @@ final_data_cor_long <- as.data.frame(as.table(final_data_cor_results)) |>
 
 final_data_cor_long$Freq <- as.numeric(as.character(final_data_cor_long$Freq))
 
-# Filter correlations based on the cutoff of 0.65
-significant_correlations <- final_data_cor_long |>
+significant_correlations <- final_data_cor_long |> # Filter correlations based on the cutoff of 0.65
   filter(abs(Freq) >= 0.65) |>  # Apply cutoff for correlation
   arrange(desc(abs(Freq)))# Sort by absolute correlation values
 
-# Rename columns for clarity
-colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation")
+colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
 # View the final table of correlations
 significant_correlations
