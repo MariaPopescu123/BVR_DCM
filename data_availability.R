@@ -3,6 +3,10 @@ CTD <- read.csv("./CTD.csv")
 
 PAR_profiles <- read.csv("PAR_profiles.csv")
 
+final_data0 <- read.csv("./final_data0.csv")
+
+DCM_final<- read.csv("./DCM_final.csv")
+
 
 CTDfiltered <- CTD|>
   filter(Reservoir == "BVR", Site == 50)|>
@@ -28,10 +32,13 @@ PAR_profiles_filtered <- PAR_profiles |>
             pH = mean(pH, na.rm = TRUE))
 
 
-plot_dat <- final_datasecPZ %>%
+####to see dates that data is available for
+data_available <- function(data, title_text, variable){
+
+plot_dat <- data %>%
   mutate(Year = year(Date), 
          DayOfYear = yday(Date))|> # Extract year and day of the year
-  select(Date, Year, DayOfYear, interp_pH, Depth_m)
+  select(Date, Year, DayOfYear, {{ variable }})
 
 redpoints <- plot_dat|>
   filter(DayOfYear>133, DayOfYear<286)
@@ -42,9 +49,14 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   geom_line() +  # Line for each year
   geom_point() +  # Data points
   theme_bw() +
-  labs(x = "Day of Year", y = "Year", title = "interp_pH ") +
+  labs(x = "Day of Year", y = "Year", title = {{title_text}}) +
   geom_point(data = redpoints, aes(x = DayOfYear, y = as.factor(Year)), 
              color = "red", size = 3) +  # Highlight max points in red
   scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
   theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
+}
+
+data_available(DCM_final, "DCM_interp_TFe_mgL", DCM_interp_TCa_mgL)
+
+
 

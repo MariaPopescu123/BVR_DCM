@@ -30,8 +30,8 @@ ghgs <- read.csv("./ghgs.csv")
 #secchi
 secchiframe <- read.csv("./secchiframe.csv")
 
-#PAR
-PAR_profiles <- read.csv("PAR_profiles.csv")
+#ysi
+ysi_profiles <- read.csv("ysi_profiles.csv")
 
 #chemistry
 chemistry <- read.csv("./chemistry.csv")
@@ -59,7 +59,7 @@ DCM_BVRdata <- current_df %>%
   group_by(CastID)|>
   mutate(Bluegreens_DCM_conc = max(Bluegreens_ugL, na.rm = TRUE))|> #concentration of bluegreens at bluegreens DCM
   mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))|>
-  filter((hour(DateTime) <= 21), (hour(DateTime) > 5))|>
+  filter((hour(DateTime) >= 8), (hour(DateTime) <= 15))|>
   filter(!(CastID == 592))|> #filter out weird drop in 2017
   filter(!(CastID == 395)) #weird drop in 2016
 
@@ -174,7 +174,7 @@ DCM_BVRwmetalsghgssecchilight <- DCM_BVRwmetalsghgssecchi |>
 
 ####Adding PAR, DO, DOsat_percent, cond, ORP, pH, temp ####
 
-PAR_profiles_filtered <- PAR_profiles |>
+ysi_profiles_filtered <- ysi_profiles |>
   filter(Reservoir == "BVR", Site == 50)|>
   mutate(Date = as_date(DateTime))|>
   group_by(Date, Depth_m)|>
@@ -200,27 +200,46 @@ CTDfiltered <- CTD|>
             Temp_C = mean(Temp_C))
 
 #now join both together
-combined_df <- full_join(PAR_profiles_filtered, CTDfiltered, by = c("Date", "Depth_m")) %>%
+combined_df <- full_join(ysi_profiles_filtered, CTDfiltered, by = c("Date", "Depth_m")) %>%
   arrange(Date)
 
-combined_df2<- combined_df|>
-  filter(year(Date) != 2013)|>
-  mutate(PAR_umolm2s = coalesce(PAR_umolm2s.x, PAR_umolm2s.y)) %>%
-  mutate(DO_mgL = coalesce(DO_mgL.x, DO_mgL.y)) %>%
-  mutate(DOsat_percent = coalesce(DOsat_percent.x, DOsat_percent.y)) %>%
-  mutate(Cond_uScm = coalesce(Cond_uScm.x, Cond_uScm.y)) %>%
-  mutate(ORP_mV = coalesce(ORP_mV.x, ORP_mV.y)) %>%
-  mutate(pH = coalesce(pH.x, pH.y))|>
-  mutate(Temp_C = coalesce(Temp_C.x, Temp_C.y))|>
+combined_df2 <- combined_df %>%
+  filter(year(Date) != 2013) %>%
+  mutate(PAR_umolm2s = coalesce(PAR_umolm2s.y, PAR_umolm2s.x)) %>%
+  mutate(DO_mgL = coalesce(DO_mgL.y, DO_mgL.x)) %>%
+  mutate(DOsat_percent = coalesce(DOsat_percent.y, DOsat_percent.x)) %>%
+  mutate(Cond_uScm = coalesce(Cond_uScm.y, Cond_uScm.x)) %>%
+  mutate(ORP_mV = coalesce(ORP_mV.y, ORP_mV.x)) %>%
+  mutate(pH = coalesce(pH.y, pH.x)) %>%
+  mutate(Temp_C = coalesce(Temp_C.y, Temp_C.x)) %>%
   select(-PAR_umolm2s.x, -PAR_umolm2s.y,
          -DO_mgL.x, -DO_mgL.y,
          -DOsat_percent.x, -DOsat_percent.y,
-         -Cond_uScm.x, -Cond_uScm.y, 
-         -ORP_mV.x, -ORP_mV.y, 
+         -Cond_uScm.x, -Cond_uScm.y,
+         -ORP_mV.x, -ORP_mV.y,
          -pH.x, -pH.y,
          -Temp_C.x, -Temp_C.y)
 
-#interpolate and calculate Kd for the days that we do have surface PAR
+#this was used from Lewis et al. 2023
+{
+atten_k <- combined_df2%>%
+  filter(!is.na(PAR_umolm2s),
+         !is.na(Depth_m))%>%
+  group_by(Date)%>%
+  filter(sum(Depth_m<0)>0)%>%
+  mutate(I0 = mean(PAR_umolm2s[Depth_m<0], na.rm = T),
+         PAR_umolm2s = ifelse(PAR_umolm2s==0,0.001,PAR_umolm2s))%>%
+  filter(Depth_m>0,
+         !I0==0)%>%
+  summarize(I0 = unique(I0),
+            k = coef(lm(I(log(PAR_umolm2s)-log(I0))~ 0 + Depth_m)),
+            r2 = summary(lm(I(log(PAR_umolm2s)-log(I0)) ~ 0 + Depth_m))$r.squared,
+            Zeu = min(Depth_m[PAR_umolm2s<I0/100]),
+            Zeu_0.1 = min(Depth_m[PAR_umolm2s<I0/1000]))%>%
+  filter(r2>0.9)|>
+  select(Date, Zeu, Zeu_0.1)
+}#ends here
+
 
 interpolated_data <- DCM_BVRdata |> 
   select(Date, Depth_m) |> 
@@ -238,25 +257,31 @@ interpolated_data <- DCM_BVRdata |>
   ungroup()|>
   select(-DO_mgL, -PAR_umolm2s, -DOsat_percent, -Cond_uScm, -ORP_mV, -pH, -Temp_C)
 
-
 final_PAR <- DCM_BVRwmetalsghgssecchilight %>%
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
   filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
 
+final_PAR <- final_PAR|> #joining lewis calculations
+  left_join(atten_k, by = "Date", relationship = "many-to-many")
 
-PAR_Kd_PZ<- final_PAR|>
-  group_by(CastID)|>
-  mutate(PAR_kd = (log(lag(interp_PAR_umolm2s)) - log(interp_PAR_umolm2s)) / (Depth_m - lag(Depth_m)))|>
-  mutate(mean_Kd = mean(PAR_kd, na.rm = TRUE))|>
-  mutate(PAR_PZ = log(100) / mean_Kd)
+conflicts_prefer(dplyr::lag)
 
-#now calculating light availability percentage from PAR_K_d
+PAR_Kd_PZ <- final_PAR |>
+  group_by(CastID) |>
+  mutate(interp_PAR_umolm2s = if_else(interp_PAR_umolm2s == 0, 0.001, interp_PAR_umolm2s))|>
+  mutate(PAR_kd = (log(lag(interp_PAR_umolm2s)) - log(interp_PAR_umolm2s)) / (Depth_m - lag(Depth_m)),
+         PAR_kd = ifelse(is.na(PAR_kd) | Depth_m == lag(Depth_m), NA, PAR_kd)) |>
+  mutate(mean_Kd = mean(PAR_kd, na.rm = TRUE)) |>
+  mutate(PAR_PZ = ifelse(is.na(mean_Kd) | mean_Kd == 0, NA, log(100) / mean_Kd))
+
+# Now calculating light availability percentage (LAP) using PAR
 final_dataLAP <- PAR_Kd_PZ |>
-  group_by(CastID)|>
-  mutate(PAR_LAP = 100* exp(-PAR_kd * Depth_m))
+  group_by(CastID) |>
+  mutate(PAR_LAP = 100 * exp(-PAR_kd * Depth_m))
+
 
 ####Secchi PZ####
-#using secchi_PZ because the data for PAR between CTD and YSI is too different (for example look at PAR_profiles filtered and CTD filtered for 2018-5-4)
+#using secchi_PZ because the data for PAR between CTD and YSI is too different (for example look at ysi_profiles filtered and CTD filtered for 2018-5-4)
 #if I want to calculate PZ for specific years it would be ok but across all years no
 final_datasecPZ <- final_dataLAP |>
   mutate(secchi_PZ = 2.7*Secchi_m)|>
@@ -265,6 +290,15 @@ final_datasecPZ <- final_dataLAP |>
   group_by(Date, Depth_m, CastID)|>
   mutate(Temp_C = rowMeans(cbind(Temp_C, interp_Temp_C), na.rm = TRUE))|>
   select(-interp_Temp_C)
+
+looking <- final_datasecPZ|>
+  mutate(DOY = yday(Date))|>
+  select(Date, DOY, Depth_m, DCM_depth, secchi_PZ, PAR_PZ, Zeu, Zeu_0.1)|>
+  filter(DOY>133, DOY<286)
+
+  
+#decided to use secchi based on exploring data availability and values across years)
+
 
 #### Nutrients  ####
 {
@@ -441,7 +475,7 @@ thermocline_df <- final_datamet |>
   mutate(thermocline_depth = thermo.depth(
     Temp_C, 
     Depth_m, 
-    Smin = 0.1, 
+    Smin = 2, 
     seasonal = TRUE, 
     index = FALSE,
     mixed.cutoff = 1
@@ -457,10 +491,24 @@ final_datathermo <- final_datathermocline|>
   ungroup()|>
   relocate(thermocline_depth, .before = Temp_C)
 
-####Buoyancy Frequency ####
+looking<- final_datathermo|>
+  select(Date, CastID, Depth_m, Temp_C, thermocline_depth)
 
-BVRbath <- bath|>
-  filter(Reservoir == "BVR")
+#checking to make sure the thermocline is where I expect
+plot_data <- final_datathermo |>
+  filter(Date == as.Date("2021-09-06"))|> #change depths here to see a specific day and see if the thermocline matches up
+  select(Date, Depth_m, thermocline_depth, Temp_C)
+
+ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
+  geom_point() +         # Add points, or any other geom you need
+  scale_y_reverse() +    # Inverts the y-axis
+  labs(x = "Temperature (°C)", y = "Depth (m)") +
+  theme_minimal()        # Optional: apply a clean theme
+
+#need to fix the temperatures for 2014-09-25
+
+
+####Buoyancy Frequency ####
 
 final_databuoy <- final_datathermo|>
   group_by(CastID)|>
@@ -469,8 +517,6 @@ final_databuoy <- final_datathermo|>
 #need to make sure this makes sense
 
 ####Waterlevels####
-#skipping this for now I don't know what's wrong
-
 
 wtrlvl2 <- wtrlvl|>
   mutate(Date = as.Date(DateTime))|>
@@ -491,15 +537,82 @@ final_data_water <- final_databuoy|>
     )
   )
 
-#separate data frame for peak widths, depths, and magnitude calculations
-for_peaks <- final_databuoy|>
-  select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
+#dates in 2022 that are still NA but the water levels before and after are 10.17 and 10.10
+final_data_water<- final_data_water|>
+  mutate(WaterLevel_m = if_else(is.na(WaterLevel_m) & year(Date) == 2022, 10.135, WaterLevel_m))
+
+#need to add the bathymetry here for surface area at different depths
+#to calculate epilimnion, meta, and hypo
+
+BVRbath <- bath|>
+  filter(Reservoir == "BVR")
+
+library(signal)
+
+new_depths <- seq(0, 14, by = 0.01)
+interpolated_SA <- pchip(BVRbath$Depth_m, BVRbath$SA_m2, new_depths)
+interpolated_Volume_layer <- pchip(BVRbath$Depth_m, BVRbath$Volume_layer_L, new_depths)
+interpolated_Volume_below <- pchip(BVRbath$Depth_m, BVRbath$Volume_below_L, new_depths)
+
+#new bathymetry dataframe with finer sequence
+BVRbath_interpolated <- data.frame(
+  Depth_m = new_depths,
+  SA_m2 = interpolated_SA,
+  Volume_layer_L = interpolated_Volume_layer,
+  Volume_below_L = interpolated_Volume_below
+)
+
+BVRbath_interpolated<- BVRbath_interpolated|>
+  filter(SA_m2 != 0, Depth_m != 0)
+
+bathytest <- final_data_water|>
+  group_by(Date)|>
+  mutate(Dadjust = 14-WaterLevel_m)|> #here should I use max(Depth_m) or should I use water_level
+  mutate(tempbathdepths = Depth_m + Dadjust)|> #I will use this depth to extract the surface area from BVRbath_interpolated
+  ungroup()
+
+final_bathy <- bathytest |>
+  mutate(
+    SA_m2 = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$SA_m2, tempbathdepths, rule = 2)$y,
+    Volume_layer_L = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$Volume_layer_L, tempbathdepths, rule = 2)$y,
+    Volume_below_L = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$Volume_below_L, tempbathdepths, rule = 2)$y
+  )|>
+  select(-Dadjust)
+
+#looking<- final_bathy|>
+#  select(Date, Depth_m, SA_m2, Volume_layer_L, Volume_below_L)
+
+####whole lake temp####
+#Calculates volumetrically weighted average whole lake temperature using the supplied water temperature timeseries.
+
+#use tempbathdepths when using packages that require bathymetric data. adjusted to match up the 0-14 bathymetric data
+final_bathy <- final_bathy |>
+  select(-CastID, -DateTime)|>
   group_by(Date, Depth_m) |>
-  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = 'drop')
+
+
+lake_temp <- final_bathy %>%
+  filter(!is.na(Temp_C))|>
+  group_by(Date) %>%
+  mutate(whole_lake_temp = whole.lake.temperature(Temp_C, tempbathdepths, BVRbath_interpolated$Depth_m, BVRbath_interpolated$SA_m2))|>
+  ungroup()
+
+#I think i did it need to check on this 
+
+looking<- lake_temp|>
+  select(Date, Depth_m, whole_lake_temp)|>
+  filter(!is.na(whole_lake_temp))
 
 ####Peak.width####
 #use blue_mean not blue_median
 #focusing on bluegreens
+
+#separate data frame for peak widths, depths, and magnitude calculations
+for_peaks <- final_bathy|> #type in here the last frame that it matches up with
+  select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
+  group_by(Date, Depth_m) |>
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
 
 peaks_calculated <- for_peaks %>%
   group_by(Date) %>%
@@ -531,10 +644,6 @@ peaks_calculated <- for_peaks %>%
   ) %>%
   ungroup()  # Ungroup after mutations
 
-looking <- peaks_calculated|>
-  filter(year(Date) == 2016, month(Date) == 8)|>
-  select(Date, peak.top, peak.bottom, peak.width, blue_med, blue_mean, Bluegreens_ugL, Depth_m, Bluegreens_DCM_conc)
-
 ####Peak.magnitude####
 
 final_data_peaks <- peaks_calculated|>
@@ -543,18 +652,25 @@ final_data_peaks <- peaks_calculated|>
   ungroup()|>
   select(Date, Depth_m, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
 
-final_data0 <- final_databuoy |>
+final_data0 <- final_data_water |>
   left_join(final_data_peaks, by = c("Date", "Depth_m")) |>
   mutate(peak.width = if_else(peak.width < 3, peak.width, NA_real_)) |>
   group_by(Date, CastID, Depth_m) |>
   summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), 
             .groups = 'drop')|>
   mutate(DayOfYear = yday(Date))|>
-  filter(DayOfYear>133, DayOfYear<286)|> #choosing this timeframe based on "timeframe determination" section of this script
-  mutate(DCM = if_else(Depth_m == DCM_depth, TRUE, FALSE))
+  mutate(DCM = if_else(Depth_m == DCM_depth, TRUE, FALSE))|>
+  mutate(PAR_PZ = if_else(PAR_PZ<0, NA_real_, PAR_PZ))|>
+  mutate(PZ = if_else(!is.na(secchi_PZ), 
+                      secchi_PZ, 
+                      rowMeans(select(cur_data(), PAR_PZ, Zeu), na.rm = TRUE)))|>
+  mutate(PZ = if_else(PZ>10, 9.5, PZ))|>
+  mutate(secchi_PZ = if_else(secchi_PZ>10, 9.5, secchi_PZ))|>
+  filter(DayOfYear>133, DayOfYear<286) #choosing this timeframe based on "timeframe determination" section of this script
+  
 
 looking <- final_data0|>
-  select(Date, Depth_m, DCM_depth, DCM)
+  select(Date, PZ)
 
 ####Schmidt_stability####
 
@@ -607,25 +723,28 @@ DCM_final <- final_data0 |>
   fill(DCM_Temp_C, .direction = "updown") |>
   mutate(DCM_buoyancy_freq = if_else(DCM == TRUE, buoyancy_freq, NA_real_)) |>
   fill(DCM_buoyancy_freq, .direction = "updown") |>
-  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d,PAR_PZ, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
+  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
-         DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, DCM_interp_DO_mgL,
+         DCM_interp_CO2_umolL, DCM_interp_CH4_umolL,secchi_PZ, PAR_PZ, PZ, Zeu, DCM_interp_DO_mgL,
          DCM_interp_DOsat_percent, DCM_interp_Cond_uScm, DCM_interp_ORP_mV, DCM_interp_pH, DCM_interp_TN_ugL, DCM_interp_TP_ugL, 
          DCM_interp_NH4_ugL, DCM_interp_NO3NO2_ugL, DCM_interp_SRP_ugL, DCM_interp_DOC_mgL, DCM_interp_DIC_mgL, 
-         DCM_interp_DC_mgL)|>
+         DCM_interp_DC_mgL, WaterLevel_m)|>
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
   ungroup()|>
   mutate(DayOfYear = yday(Date))|>
   select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-         sec_K_d, secchi_PZ, PAR_PZ, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
+         secchi_PZ,PAR_PZ, PZ, Zeu, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
          DCM_interp_CO2_umolL, DCM_interp_CH4_umolL, DCM_interp_DO_mgL,
          DCM_interp_DOsat_percent, DCM_interp_Cond_uScm, DCM_interp_ORP_mV, DCM_interp_pH, DCM_interp_TN_ugL, DCM_interp_TP_ugL, 
          DCM_interp_NH4_ugL, DCM_interp_NO3NO2_ugL, DCM_interp_SRP_ugL, DCM_interp_DOC_mgL, DCM_interp_DIC_mgL, 
-         DCM_interp_DC_mgL)
+         DCM_interp_DC_mgL, WaterLevel_m)
+
+write.csv(DCM_final,"./DCM_final.csv",row.names = FALSE)
+
+
 
 
 ####correlation function####
@@ -636,7 +755,7 @@ correlations <- function(year1, year2) {
     filter(month(Date) > 4, month(Date) < 10) |>
     filter(Bluegreens_DCM_conc > 20)
   
-  drivers_cor <- cor(DCM_final_cor[,c(2:37)],
+  drivers_cor <- cor(DCM_final_cor[,c(2:39)],
                      method = "spearman", use = "pairwise.complete.obs")
  
   list(drivers_cor = drivers_cor, DCM_final_cor = DCM_final_cor)
@@ -644,7 +763,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2017, 2017)
+results <- correlations(2014, 2023)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -665,11 +784,28 @@ significant_correlations <- final_data_cor_long |> # Filter correlations based o
 
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
-# View the final table of correlations
-significant_correlations
+####correlations across year looking only at max day each year####
+
+DCM_final_maxdays_cor<- DCM_final|>
+  filter(Date %in% c("2014-07-02", "2015-06-18", "2016-06-30", "2017-07-20", "2018-08-16", "2019-06-27", "2020-09-16", "2021-07-26", "2022-08-01", "2023-07-24"))
 
 
+maxdayscor <- cor(DCM_final_maxdays_cor[,c(2:37)], method = "spearman", use = "pairwise.complete.obs")
 
+maxdayscor[lower.tri(maxdayscor)] <- NA
+diag(maxdayscor) <- NA
+
+# Flatten the correlation matrix into a long format
+maxdayscor_long <- as.data.frame(as.table(maxdayscor)) |>
+  filter(!is.na(Freq))  # Remove NAs introduced by setting the lower triangle to NA
+
+maxdayscor_long$Freq <- as.numeric(as.character(maxdayscor_long$Freq))
+
+significant_correlations <- maxdayscor_long |> # Filter correlations based on the cutoff of 0.65
+  filter(abs(Freq) >= 0.65) |>  # Apply cutoff for correlation
+  arrange(desc(abs(Freq)))# Sort by absolute correlation values
+
+colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
 
 ####daily correlation, for choosing specific day####
@@ -699,6 +835,7 @@ daily_cor <- final_data0|>
 daily_cor_result <- cor(daily_cor[,c(1:32)], method = "spearman", use = "pairwise.complete.obs")
   
 daily_cor_result[lower.tri(daily_cor_result)] = ""
+
 
 ####timeframe determination based on flora data availability####
 
@@ -900,51 +1037,69 @@ ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
   labs(x = "Year", y = "Peak Magnitude", color = "Bluegreens ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-#converting dataframe to timeseries object
-#but it says it has to be evenly spaced in time
+####RandomForest####
 
-# DO NOT CHANGE THIS ALSO USED FOR LINE IN HEATMAPS LATER
-chlorophyll_data <- final_data0 |>
-  filter(DCM_totalconc > 20)|> #choosing greater than 20 as the bloom
-  filter(DCM == TRUE)|>
-  filter(!(month(DateTime) == 8 & year(DateTime) == 2017 & Bluegreens_ugL < 35))|> #filter out weird drop in 2017
-  filter(!(CastID == 395)) #filter out weird drop in 2016
+#"We constructed a RF of 1500 trees for each of the two response
+#variables using 1% PAR depth (m), DOC concentration (mg L21),
+#thermocline depth (m), metalimnion thickness (m),
+#buoyancy frequency at the thermocline (s21),
+#lake surface area (log10(km2)), and maximum depth (log10(m))
+#as predictors included in each analysis."
+#Leach Patterns and Drivers
+library(randomForest)
+library(missForest)
 
-#start with DCM depth 
-#this WORKS but the time series is not stationary
-#check to make sure it's weekly, do May-October
+#trying within a year
+# Your existing code to filter and prepare the dataset
+yearDCM_final <- DCM_final |>
+  filter(year(Date) == 2019) |>
+  mutate(DOY = yday(Date)) |>
+  select(where(~ mean(is.na(.)) <= 0.5))
 
-DCM_deptharima <- chlorophyll_data|>
-  filter(year(DateTime) == 2015)|>
-  select(DCM_depth)
+# List of columns to apply the interpolation to (excluding Date and DOY)
+cols_to_interpolate <- c()
 
-data <- ts(DCM_deptharima)
-arima_model <- auto.arima(data)
+# Loop through each column name in yearDCM_final
+for (col in colnames(yearDCM_final)) {
+  # Check if the column has at least 3 non-NA observations
+  if (sum(!is.na(yearDCM_final[[col]])) >= 3) {
+    cols_to_interpolate <- c(cols_to_interpolate, col)  # Add column to list if condition is met
+  }
+}
 
-summary(arima_model)
+# If you want to exclude specific columns (e.g., Date and DOY):
+cols_to_exclude <- c("Date", "DOY")
 
+# Loop through and filter out the excluded columns
+cols_to_interpolate <- cols_to_interpolate[!cols_to_interpolate %in% cols_to_exclude]
 
+# Loop through each column and apply pchip interpolation
+for (col in cols_to_interpolate) {
+  # Identify rows with non-NA values for the current column
+  non_na_rows <- !is.na(yearDCM_final[[col]])
+  
+  # Perform PCHIP interpolation only on non-NA values for the current column
+  yearDCM_final[[col]][!non_na_rows] <- pchip(
+    yearDCM_final$DOY[non_na_rows],          # DOY values where the column is not NA
+    yearDCM_final[[col]][non_na_rows],       # Column values where not NA
+    yearDCM_final$DOY[!non_na_rows]          # DOY values where the column is NA
+  )
+}
 
-#attempt at time series analysis
+# 
 
-library(forecast)
-library(MuMIn)
+set.seed(123) # Setting seed for reproducibility
+index <- sample(1:nrow(yearDCM_final), size = 0.7 * nrow(yearDCM_final))  # 70% training data
+train_data <- yearDCM_final[index, ]
+test_data <- yearDCM_final[-index, ]
+non_numeric_columns <- sapply(train_data, function(x) !is.numeric(x) & !is.factor(x))
+train_data_no_non_numeric <- train_data %>% select(-which(non_numeric_columns))
 
-#square root transformation?
+# Apply na.roughfix() to impute missing values in numeric and factor columns
+train_data_imputed <- na.roughfix(train_data_no_non_numeric)
+# Add the excluded non-numeric columns (e.g., Date) back to the imputed dataset
+model_rf <- randomForest(Bluegreens_DCM_depth ~ ., data = train_data_imputed, ntree = 500, importance = TRUE)
 
-final_data0$bluegreens_sqrt <- sqrt(final_data0$Bluegreens_ugL)
-
-# Check for autocorrelation
-acf(final_data0$bluegreens_sqrt, lag.max = 10)
-
-# Fit an AR(1) model with different environmental predictors
-model <- auto.arima(final_data0$bluegreens_sqrt, xreg = final_data0[, c("np_ratio", "Temp_C")])
-
-# Model selection using AICc
-dredge(model, rank = "AICc")
-
-# Best model summary
-summary(best_model)
-
+importance(model_rf)
 
 

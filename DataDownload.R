@@ -35,9 +35,9 @@ write.csv(ghgs, "./ghgs.csv", row.names = FALSE )
 secchiframe <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/11/81f396b3e910d3359907b7264e689052")
 write.csv(secchiframe, "./secchiframe.csv", row.names = FALSE )
 
-#PAR https://portal.edirepository.org/nis/mapbrowse?packageid=edi.198.11
-PAR_profiles <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/11/6e5a0344231de7fcebbe6dc2bed0a1c3")
-write.csv(PAR_profiles, "./PAR_profiles.csv", row.names = FALSE)
+#ysi https://portal.edirepository.org/nis/mapbrowse?packageid=edi.198.11
+ysi_profiles <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/11/6e5a0344231de7fcebbe6dc2bed0a1c3")
+write.csv(ysi_profiles, "./ysi_profiles.csv", row.names = FALSE)
 
 #data from here https://portal.edirepository.org/nis/mapbrowse?packageid=edi.199.12
 chemistry <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/199/12/a33a5283120c56e90ea414e76d5b7ddb")
