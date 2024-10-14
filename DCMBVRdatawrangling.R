@@ -264,6 +264,8 @@ final_PAR <- DCM_BVRwmetalsghgssecchilight %>%
 final_PAR <- final_PAR|> #joining lewis calculations
   left_join(atten_k, by = "Date", relationship = "many-to-many")
 
+conflicts_prefer(dplyr::lag)
+
 PAR_Kd_PZ <- final_PAR |>
   group_by(CastID) |>
   mutate(interp_PAR_umolm2s = if_else(interp_PAR_umolm2s == 0, 0.001, interp_PAR_umolm2s))|>
@@ -535,6 +537,10 @@ final_data_water <- final_databuoy|>
     )
   )
 
+#dates in 2022 that are still NA but the water levels before and after are 10.17 and 10.10
+final_data_water<- final_data_water|>
+  mutate(WaterLevel_m = if_else(is.na(WaterLevel_m) & year(Date) == 2022, 10.135, WaterLevel_m))
+
 #need to add the bathymetry here for surface area at different depths
 #to calculate epilimnion, meta, and hypo
 
@@ -556,6 +562,9 @@ BVRbath_interpolated <- data.frame(
   Volume_below_L = interpolated_Volume_below
 )
 
+BVRbath_interpolated<- BVRbath_interpolated|>
+  filter(SA_m2 != 0, Depth_m != 0)
+
 bathytest <- final_data_water|>
   group_by(Date)|>
   mutate(Dadjust = 14-WaterLevel_m)|> #here should I use max(Depth_m) or should I use water_level
@@ -570,22 +579,30 @@ final_bathy <- bathytest |>
   )|>
   select(-Dadjust)
 
-
-
 #looking<- final_bathy|>
 #  select(Date, Depth_m, SA_m2, Volume_layer_L, Volume_below_L)
 
-#whole.lake.temperature(wtr, depths, bthA, bthD)
+####whole lake temp####
 #Calculates volumetrically weighted average whole lake temperature using the supplied water temperature timeseries.
 
 #use tempbathdepths when using packages that require bathymetric data. adjusted to match up the 0-14 bathymetric data
+final_bathy <- final_bathy |>
+  select(-CastID, -DateTime)|>
+  group_by(Date, Depth_m) |>
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = 'drop')
 
-lake_temp<- final_bathy|>
-  group_by(Date)|>
-  mutate(wholelake_temp = whole.lake.temperature(Temp_C, tempbathdepths,BVRbath_interpolated$SA_m2, BVRbath_interpolated$Depth_m))
 
+lake_temp <- final_bathy %>%
+  filter(!is.na(Temp_C))|>
+  group_by(Date) %>%
+  mutate(whole_lake_temp = whole.lake.temperature(Temp_C, tempbathdepths, BVRbath_interpolated$Depth_m, BVRbath_interpolated$SA_m2))|>
+  ungroup()
 
+#I think i did it need to check on this 
 
+looking<- lake_temp|>
+  select(Date, Depth_m, whole_lake_temp)|>
+  filter(!is.na(whole_lake_temp))
 
 ####Peak.width####
 #use blue_mean not blue_median
