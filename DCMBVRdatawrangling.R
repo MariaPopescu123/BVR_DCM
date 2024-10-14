@@ -694,7 +694,7 @@ looking <- final_data0|>
 ####final dataframe####
 
 #
-write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
+#write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 
 
 
@@ -734,7 +734,7 @@ DCM_final <- final_data0 |>
   ungroup()|>
   mutate(DayOfYear = yday(Date))|>
   select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
-        secchi_PZ,PAR_PZ, PZ, Zeu, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
+         secchi_PZ,PAR_PZ, PZ, Zeu, DCM_buoyancy_freq, thermocline_depth, DCM_Temp_C, DCM_np_ratio,DCM_interp_SFe_mgL,
          DCM_interp_TFe_mgL, DCM_interp_SMn_mgL, DCM_interp_SCa_mgL,
          DCM_interp_TCa_mgL, DCM_interp_TCu_mgL, DCM_interp_SBa_mgL, DCM_interp_TBa_mgL,
          DCM_interp_CO2_umolL, DCM_interp_CH4_umolL, DCM_interp_DO_mgL,
@@ -788,6 +788,7 @@ colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation")
 
 DCM_final_maxdays_cor<- DCM_final|>
   filter(Date %in% c("2014-07-02", "2015-06-18", "2016-06-30", "2017-07-20", "2018-08-16", "2019-06-27", "2020-09-16", "2021-07-26", "2022-08-01", "2023-07-24"))
+
 
 maxdayscor <- cor(DCM_final_maxdays_cor[,c(2:37)], method = "spearman", use = "pairwise.complete.obs")
 
