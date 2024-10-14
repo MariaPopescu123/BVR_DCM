@@ -473,13 +473,11 @@ thermocline_df <- final_datamet |>
   mutate(thermocline_depth = thermo.depth(
     Temp_C, 
     Depth_m, 
-    Smin = 0.1, 
+    Smin = 2, 
     seasonal = TRUE, 
     index = FALSE,
     mixed.cutoff = 1
   )) 
-
-
 
 #add to frame
 final_datathermocline <- final_datanpratio|>
@@ -491,10 +489,24 @@ final_datathermo <- final_datathermocline|>
   ungroup()|>
   relocate(thermocline_depth, .before = Temp_C)
 
-####Buoyancy Frequency ####
+looking<- final_datathermo|>
+  select(Date, CastID, Depth_m, Temp_C, thermocline_depth)
 
-BVRbath <- bath|>
-  filter(Reservoir == "BVR")
+#checking to make sure the thermocline is where I expect
+plot_data <- final_datathermo |>
+  filter(Date == as.Date("2021-09-06"))|> #change depths here to see a specific day and see if the thermocline matches up
+  select(Date, Depth_m, thermocline_depth, Temp_C)
+
+ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
+  geom_point() +         # Add points, or any other geom you need
+  scale_y_reverse() +    # Inverts the y-axis
+  labs(x = "Temperature (°C)", y = "Depth (m)") +
+  theme_minimal()        # Optional: apply a clean theme
+
+#need to fix the temperatures for 2014-09-25
+
+
+####Buoyancy Frequency ####
 
 final_databuoy <- final_datathermo|>
   group_by(CastID)|>
@@ -523,15 +535,67 @@ final_data_water <- final_databuoy|>
     )
   )
 
-#separate data frame for peak widths, depths, and magnitude calculations
-for_peaks <- final_data_water|>
-  select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
-  group_by(Date, Depth_m) |>
-  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
+#need to add the bathymetry here for surface area at different depths
+#to calculate epilimnion, meta, and hypo
+
+BVRbath <- bath|>
+  filter(Reservoir == "BVR")
+
+library(signal)
+
+new_depths <- seq(0, 14, by = 0.01)
+interpolated_SA <- pchip(BVRbath$Depth_m, BVRbath$SA_m2, new_depths)
+interpolated_Volume_layer <- pchip(BVRbath$Depth_m, BVRbath$Volume_layer_L, new_depths)
+interpolated_Volume_below <- pchip(BVRbath$Depth_m, BVRbath$Volume_below_L, new_depths)
+
+#new bathymetry dataframe with finer sequence
+BVRbath_interpolated <- data.frame(
+  Depth_m = new_depths,
+  SA_m2 = interpolated_SA,
+  Volume_layer_L = interpolated_Volume_layer,
+  Volume_below_L = interpolated_Volume_below
+)
+
+bathytest <- final_data_water|>
+  group_by(Date)|>
+  mutate(Dadjust = 14-WaterLevel_m)|> #here should I use max(Depth_m) or should I use water_level
+  mutate(tempbathdepths = Depth_m + Dadjust)|> #I will use this depth to extract the surface area from BVRbath_interpolated
+  ungroup()
+
+final_bathy <- bathytest |>
+  mutate(
+    SA_m2 = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$SA_m2, tempbathdepths, rule = 2)$y,
+    Volume_layer_L = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$Volume_layer_L, tempbathdepths, rule = 2)$y,
+    Volume_below_L = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$Volume_below_L, tempbathdepths, rule = 2)$y
+  )|>
+  select(-Dadjust)
+
+
+
+#looking<- final_bathy|>
+#  select(Date, Depth_m, SA_m2, Volume_layer_L, Volume_below_L)
+
+#whole.lake.temperature(wtr, depths, bthA, bthD)
+#Calculates volumetrically weighted average whole lake temperature using the supplied water temperature timeseries.
+
+#use tempbathdepths when using packages that require bathymetric data. adjusted to match up the 0-14 bathymetric data
+
+lake_temp<- final_bathy|>
+  group_by(Date)|>
+  mutate(wholelake_temp = whole.lake.temperature(Temp_C, tempbathdepths,BVRbath_interpolated$SA_m2, BVRbath_interpolated$Depth_m))
+
+
+
 
 ####Peak.width####
 #use blue_mean not blue_median
 #focusing on bluegreens
+
+#separate data frame for peak widths, depths, and magnitude calculations
+for_peaks <- final_bathy|> #type in here the last frame that it matches up with
+  select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
+  group_by(Date, Depth_m) |>
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
 
 peaks_calculated <- for_peaks %>%
   group_by(Date) %>%
@@ -956,16 +1020,55 @@ ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ####RandomForest####
+
+#"We constructed a RF of 1500 trees for each of the two response
+#variables using 1% PAR depth (m), DOC concentration (mg L21),
+#thermocline depth (m), metalimnion thickness (m),
+#buoyancy frequency at the thermocline (s21),
+#lake surface area (log10(km2)), and maximum depth (log10(m))
+#as predictors included in each analysis."
+#Leach Patterns and Drivers
 library(randomForest)
 library(missForest)
 
 #trying within a year
-yearDCM_final<- DCM_final|>
-  filter(year(Date) == 2016)|>
-  select(where(~ mean(is.na(.)) <= 0.5))|>  # Remove columns with more than 50% NA
-  select(Date, Bluegreens_DCM_depth, peak.magnitude, secchi_PZ, DCM_buoyancy_freq, thermocline_depth, DCM_np_ratio, WaterLevel_m)
+# Your existing code to filter and prepare the dataset
+yearDCM_final <- DCM_final |>
+  filter(year(Date) == 2019) |>
+  mutate(DOY = yday(Date)) |>
+  select(where(~ mean(is.na(.)) <= 0.5))
 
+# List of columns to apply the interpolation to (excluding Date and DOY)
+cols_to_interpolate <- c()
 
+# Loop through each column name in yearDCM_final
+for (col in colnames(yearDCM_final)) {
+  # Check if the column has at least 3 non-NA observations
+  if (sum(!is.na(yearDCM_final[[col]])) >= 3) {
+    cols_to_interpolate <- c(cols_to_interpolate, col)  # Add column to list if condition is met
+  }
+}
+
+# If you want to exclude specific columns (e.g., Date and DOY):
+cols_to_exclude <- c("Date", "DOY")
+
+# Loop through and filter out the excluded columns
+cols_to_interpolate <- cols_to_interpolate[!cols_to_interpolate %in% cols_to_exclude]
+
+# Loop through each column and apply pchip interpolation
+for (col in cols_to_interpolate) {
+  # Identify rows with non-NA values for the current column
+  non_na_rows <- !is.na(yearDCM_final[[col]])
+  
+  # Perform PCHIP interpolation only on non-NA values for the current column
+  yearDCM_final[[col]][!non_na_rows] <- pchip(
+    yearDCM_final$DOY[non_na_rows],          # DOY values where the column is not NA
+    yearDCM_final[[col]][non_na_rows],       # Column values where not NA
+    yearDCM_final$DOY[!non_na_rows]          # DOY values where the column is NA
+  )
+}
+
+# 
 
 set.seed(123) # Setting seed for reproducibility
 index <- sample(1:nrow(yearDCM_final), size = 0.7 * nrow(yearDCM_final))  # 70% training data
@@ -979,5 +1082,6 @@ train_data_imputed <- na.roughfix(train_data_no_non_numeric)
 # Add the excluded non-numeric columns (e.g., Date) back to the imputed dataset
 model_rf <- randomForest(Bluegreens_DCM_depth ~ ., data = train_data_imputed, ntree = 500, importance = TRUE)
 
+importance(model_rf)
 
 
