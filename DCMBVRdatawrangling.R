@@ -579,17 +579,15 @@ final_bathy <- bathytest |>
   )|>
   select(-Dadjust)
 
-#looking<- final_bathy|>
-#  select(Date, Depth_m, SA_m2, Volume_layer_L, Volume_below_L)
 
 ####whole lake temp####
 #Calculates volumetrically weighted average whole lake temperature using the supplied water temperature timeseries.
 
 #use tempbathdepths when using packages that require bathymetric data. adjusted to match up the 0-14 bathymetric data
-final_bathy <- final_bathy |>
-  select(-CastID, -DateTime)|>
-  group_by(Date, Depth_m) |>
-  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = 'drop')
+#final_bathy <- final_bathy |>
+#  select(-CastID, -DateTime)|>
+#  group_by(Date, Depth_m) |>
+#  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = 'drop')
 
 
 lake_temp <- final_bathy %>%
@@ -598,11 +596,13 @@ lake_temp <- final_bathy %>%
   mutate(whole_lake_temp = whole.lake.temperature(Temp_C, tempbathdepths, BVRbath_interpolated$Depth_m, BVRbath_interpolated$SA_m2))|>
   ungroup()
 
+looking<- final_bathy|>
+  select(Date, CastID, Depth_m, Temp_C, tempbathdepths, WaterLevel_m)
+
 #I think i did it need to check on this 
 
 looking<- lake_temp|>
-  select(Date, Depth_m, whole_lake_temp)|>
-  filter(!is.na(whole_lake_temp))
+  select(Date, Depth_m, whole_lake_temp)
 
 ####Peak.width####
 #use blue_mean not blue_median
