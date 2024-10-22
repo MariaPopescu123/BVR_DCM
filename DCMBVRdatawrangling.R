@@ -1,5 +1,6 @@
-# Maria DCM BVR data set
+# Maria DCM BVR
 #data includes chlorophyll maxima, PAR, secchi, light attenuation, metals, ghgs, nutrients
+
 
 beep <- function(){
   system("rundll32 user32.dll,MessageBeep") #just putting this here so I can be notified when something that takes a while to run is done
@@ -46,8 +47,11 @@ bath <- read.csv("./bath.csv")
 #waterlevel data
 wtrlvl <- read.csv("./wtrlvl.csv") 
 
+#waterlevel platform data (for past 2020)
+BVRplatform <- read.csv("./BVRplatform.csv")
+
 #adding columns with total_conc max and the depth at which it occurs
-DCM_BVRdata <- current_df %>% 
+phytos <- current_df %>% 
   filter(Reservoir == "BVR")%>%
   mutate(Date  = as_date(DateTime)) |> 
   group_by(CastID) %>%
@@ -63,7 +67,7 @@ DCM_BVRdata <- current_df %>%
   filter(!(CastID == 592))|> #filter out weird drop in 2017
   filter(!(CastID == 395)) #weird drop in 2016
 
-DCM_BVRdata <- DCM_BVRdata %>%
+DCM_BVRdata <- phytos %>%
   group_by(CastID) %>%
   mutate(DCM_depth = ifelse(!is.na(DCM_depth), DCM_depth, NA_real_)) %>%  # Ensure DCM_depth is NA where condition didn't match
   fill(DCM_depth, .direction = "downup") %>%  # Fill NA values in DCM_depth column within each CastID
@@ -200,8 +204,7 @@ CTDfiltered <- CTD|>
             Temp_C = mean(Temp_C))
 
 #now join both together
-combined_df <- full_join(ysi_profiles_filtered, CTDfiltered, by = c("Date", "Depth_m")) %>%
-  arrange(Date)
+combined_df <- full_join(ysi_profiles_filtered, CTDfiltered, by = c("Date", "Depth_m"))
 
 combined_df2 <- combined_df %>%
   filter(year(Date) != 2013) %>%
@@ -264,6 +267,7 @@ final_PAR <- DCM_BVRwmetalsghgssecchilight %>%
 final_PAR <- final_PAR|> #joining lewis calculations
   left_join(atten_k, by = "Date", relationship = "many-to-many")
 
+library(conflicted)
 conflicts_prefer(dplyr::lag)
 
 PAR_Kd_PZ <- final_PAR |>
@@ -507,6 +511,27 @@ ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
 
 #need to fix the temperatures for 2014-09-25
 
+####metalimnion####
+
+final_datameta <- final_datathermo %>%
+  group_by(Date, CastID, Depth_m) %>%
+  summarise(across(where(is.numeric), 
+                   ~ mean(.x, na.rm = TRUE)),  # Summarise numeric columns
+            .groups = 'drop') %>%
+  group_by(Date, CastID) %>%
+  filter(n_distinct(Depth_m) == n()) %>%  # Ensure Depth_m values are unique
+  mutate(metalimnion_depths = list(meta.depths(Depth_m, Temp_C))) %>%
+  mutate(
+    metalimnion_upper = map_dbl(metalimnion_depths, 1),  # Extract upper depth
+    metalimnion_lower = map_dbl(metalimnion_depths, 2)   # Extract lower depth
+  ) %>%
+  select(-metalimnion_depths)
+
+
+looking<- final_datathermo|>
+  select(Date, CastID, Depth_m, Temp_C)|>
+  filter(Date %in% c("2015-06-04"))
+
 
 ####Buoyancy Frequency ####
 
@@ -541,6 +566,8 @@ final_data_water <- final_databuoy|>
 final_data_water<- final_data_water|>
   mutate(WaterLevel_m = if_else(is.na(WaterLevel_m) & year(Date) == 2022, 10.135, WaterLevel_m))
 
+
+#SKIP THIS FOR NOW. GO TO PEAK WIDTH
 #need to add the bathymetry here for surface area at different depths
 #to calculate epilimnion, meta, and hypo
 
@@ -567,7 +594,7 @@ BVRbath_interpolated<- BVRbath_interpolated|>
 
 bathytest <- final_data_water|>
   group_by(Date)|>
-  mutate(Dadjust = 14-WaterLevel_m)|> #here should I use max(Depth_m) or should I use water_level
+  mutate(Dadjust = 13.4-WaterLevel_m)|> #here should I use max(Depth_m) or should I use water_level
   mutate(tempbathdepths = Depth_m + Dadjust)|> #I will use this depth to extract the surface area from BVRbath_interpolated
   ungroup()
 
@@ -576,8 +603,18 @@ final_bathy <- bathytest |>
     SA_m2 = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$SA_m2, tempbathdepths, rule = 2)$y,
     Volume_layer_L = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$Volume_layer_L, tempbathdepths, rule = 2)$y,
     Volume_below_L = approx(BVRbath_interpolated$Depth_m, BVRbath_interpolated$Volume_below_L, tempbathdepths, rule = 2)$y
-  )|>
-  select(-Dadjust)
+  )
+
+question<- final_bathy|>
+  select(Date, Depth_m, Bluegreens_ugL, tempbathdepths, WaterLevel_m, Dadjust, SA_m2, Volume_layer_L, Volume_below_L)|>
+  group_by(Date)|>
+  mutate(difference = max(Depth_m)- WaterLevel_m)
+
+ggplot(question, aes(x = Date, y = difference))+
+  geom_point()
+
+#look at BVRbath for bathymetry comparisons
+
 
 
 ####whole lake temp####
@@ -609,7 +646,7 @@ looking<- lake_temp|>
 #focusing on bluegreens
 
 #separate data frame for peak widths, depths, and magnitude calculations
-for_peaks <- final_bathy|> #type in here the last frame that it matches up with
+for_peaks <- final_data_water|> #type in here the last frame that it matches up with (coming back to this because can't get whole lake to work)
   select(-Site, -Reservoir, -DateTime, -CastID, -DCM)|>
   group_by(Date, Depth_m) |>
   summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
@@ -624,7 +661,7 @@ peaks_calculated <- for_peaks %>%
     peak.top = as.integer(Depth_m <= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),  # Create binary indicator
     peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),
     
-    # Apply condition: If Bluegreens_DCM_conc < 20, set peak.top and peak.bottom to 0
+    # Apply condition: If Bluegreens_DCM_conc < 40, set peak.top and peak.bottom to 0
     peak.top = if_else(Bluegreens_DCM_conc < 40, 0, peak.top),
     peak.bottom = if_else(Bluegreens_DCM_conc < 40, 0, peak.bottom),
     
@@ -633,16 +670,21 @@ peaks_calculated <- for_peaks %>%
     peak.bottom = if_else(peak.bottom == 1, Depth_m, 0),
     
     # Get the minimum peak.top value, replace Inf with NA if all are NA or 0
-    peak.top = if_else(any(peak.top != 0), min(peak.top[peak.top != 0], na.rm = TRUE), NA_real_),
+    peak.top = if_else(any(peak.top != 0), 
+                       min(peak.top[peak.top != 0], na.rm = TRUE), 
+                       NA_real_),
     
     # Get the maximum peak.bottom value, replace -Inf with NA if all are NA or 0
-    peak.bottom = if_else(any(peak.bottom != 0), max(peak.bottom[peak.bottom != 0], na.rm = TRUE), NA_real_),
+    peak.bottom = if_else(any(peak.bottom != 0), 
+                          max(peak.bottom[peak.bottom != 0], na.rm = TRUE), 
+                          NA_real_),
     
-    # Calculate peak width and replace Inf with NA
+    # Calculate peak width and handle infinite values by replacing them with NA
     peak.width = peak.bottom - peak.top,
-    peak.width = if_else(is.infinite(peak.width), NA_real_, peak.width)
+    peak.width = if_else(is.na(peak.top) | is.na(peak.bottom), NA_real_, peak.width)
   ) %>%
   ungroup()  # Ungroup after mutations
+
 
 ####Peak.magnitude####
 
@@ -651,6 +693,10 @@ final_data_peaks <- peaks_calculated|>
   mutate(peak.magnitude = max(Bluegreens_ugL)-mean(Bluegreens_ugL))|>
   ungroup()|>
   select(Date, Depth_m, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
+
+library(lubridate)
+conflicts_prefer(dplyr::filter)
+library(dplyr)
 
 final_data0 <- final_data_water |>
   left_join(final_data_peaks, by = c("Date", "Depth_m")) |>
@@ -666,11 +712,9 @@ final_data0 <- final_data_water |>
                       rowMeans(select(cur_data(), PAR_PZ, Zeu), na.rm = TRUE)))|>
   mutate(PZ = if_else(PZ>10, 9.5, PZ))|>
   mutate(secchi_PZ = if_else(secchi_PZ>10, 9.5, secchi_PZ))|>
-  filter(DayOfYear>133, DayOfYear<286) #choosing this timeframe based on "timeframe determination" section of this script
-  
-
-looking <- final_data0|>
-  select(Date, PZ)
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d")) |>
+  mutate(DayOfYear = yday(Date)) |>
+  filter(DayOfYear > 133, DayOfYear < 286)  # Timeframe filtering
 
 ####Schmidt_stability####
 
@@ -784,10 +828,10 @@ significant_correlations <- final_data_cor_long |> # Filter correlations based o
 
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
-####correlations across year looking only at max day each year####
+####correlations across years,max day each year####
 
 DCM_final_maxdays_cor<- DCM_final|>
-  filter(Date %in% c("2014-07-02", "2015-06-18", "2016-06-30", "2017-07-20", "2018-08-16", "2019-06-27", "2020-09-16", "2021-07-26", "2022-08-01", "2023-07-24"))
+  filter(Date %in% c("2014-08-13", "2015-08-08", "2016-06-16", "2017-07-20", "2018-08-16", "2019-06-06", "2020-09-16", "2021-08-09", "2022-08-01", "2023-07-31"))
 
 
 maxdayscor <- cor(DCM_final_maxdays_cor[,c(2:37)], method = "spearman", use = "pairwise.complete.obs")
@@ -806,13 +850,15 @@ significant_correlations <- maxdayscor_long |> # Filter correlations based on th
   arrange(desc(abs(Freq)))# Sort by absolute correlation values
 
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
+significant_correlations_sorted <- significant_correlations[order(significant_correlations$Variable1), ] #variable 1 sorted alphabetically 
+
 
 
 ####daily correlation, for choosing specific day####
 
 #these are the days that the max Bluegreens_ugL occurs. The biggest bloom. 
 blooms <- final_data0|>
-  group_by(year(DateTime))|>
+  group_by(year(Date))|>
   mutate(bloommax = if_else(Bluegreens_ugL == max(Bluegreens_ugL), TRUE, NA_real_))|>
   ungroup()|>
   filter(bloommax == TRUE)|>
@@ -820,11 +866,10 @@ blooms <- final_data0|>
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
   ungroup()
   
-#"2014-07-02" "2015-06-18" "2016-06-30" "2017-07-20" "2018-08-16" "2019-06-27" "2020-09-16" "2021-07-26" "2022-08-01" "2023-07-24"
-
+#"2014-08-13" "2015-08-08" "2016-06-16" "2017-07-20" "2018-08-16" "2019-06-06" "2020-09-16" "2021-08-09" "2022-08-01" "2023-07-31"
 #change date to see correlations for the singular day that max was the biggest
 daily_cor <- final_data0|>
-  filter(Date %in% c("2015-06-18"))|>
+  filter(Date %in% c("2014-08-13"))|>
   select(Depth_m, Bluegreens_ugL, TotalConc_ugL, interp_SFe_mgL, interp_TFe_mgL, interp_SMn_mgL, interp_SCa_mgL,
          interp_TCa_mgL, interp_TCu_mgL, interp_SBa_mgL, interp_TBa_mgL,
          interp_CO2_umolL, interp_CH4_umolL, interp_DO_mgL,
@@ -836,21 +881,34 @@ daily_cor_result <- cor(daily_cor[,c(1:32)], method = "spearman", use = "pairwis
   
 daily_cor_result[lower.tri(daily_cor_result)] = ""
 
+daily_cor_long <- as.data.frame(as.table(daily_cor_result)) |>
+  filter(!is.na(Freq))  # Remove NAs introduced by setting the lower triangle to NA
+
+daily_cor_long$Freq <- as.numeric(as.character(daily_cor_long$Freq))
+
+significant_correlations <- daily_cor_long |> # Filter correlations based on the cutoff of 0.65
+  filter(abs(Freq) >= 0.65) |>  # Apply cutoff for correlation
+  arrange(desc(abs(Freq)))# Sort by absolute correlation values
+
+colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
+significant_correlations_sorted <- significant_correlations[order(significant_correlations$Variable1), ] #variable 1 sorted alphabetically 
+
+
 
 ####timeframe determination based on flora data availability####
 
 #days on the x axis, years on the y axis
 plot_dat <- final_data0 %>%
   filter(!is.na(Bluegreens_ugL)) %>%
-  mutate(Year = year(DateTime), 
-         DayOfYear = yday(DateTime))|> # Extract year and day of the year
+  mutate(Year = year(Date), 
+         DayOfYear = yday(Date))|> # Extract year and day of the year
   filter(!(CastID == 395))|> #filter out weird drop in 2016
   filter(!(CastID == 592))|>
-  select(DateTime, Date, Year, DayOfYear, Bluegreens_ugL, Depth_m, peak.width, peak.magnitude)
+  select(Date, Year, DayOfYear, Bluegreens_ugL, Depth_m, peak.width, peak.magnitude)
 
 # Find the maximum Bluegreens_ugL value for each year
 max_bluegreen_per_year <- plot_dat %>%
-  group_by(year(DateTime)) %>%
+  group_by(year(Date)) %>%
   slice(which.max(Bluegreens_ugL)) %>%
   ungroup()
 
@@ -942,6 +1000,7 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
 
 boxplot_Data <- DCM_final |>
   filter(Bluegreens_DCM_conc > 20) |>
+  mutate(DayOfYear = yday(Date))|>
   filter(DayOfYear>133, DayOfYear<286) |>
   mutate(Year = year(Date), Month = month(Date))
 
@@ -983,6 +1042,7 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
 #one box per year
 boxplot_Data <- DCM_final |>
   filter(Bluegreens_DCM_conc > 20) |>
+  mutate(DayOfYear = yday(Date))|>
   filter(DayOfYear>133, DayOfYear<286) |>
   mutate(Year = year(Date), Month = month(Date))|>
   filter(peak.width<2.5)
@@ -1025,6 +1085,7 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
 
 boxplot_Data <- DCM_final |>
   filter(Bluegreens_DCM_conc > 20) |>
+  mutate(DayOfYear = yday(Date))|>
   filter(DayOfYear>133, DayOfYear<286) |>
   mutate(Year = year(Date), Month = month(Date))
 
