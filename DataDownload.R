@@ -55,3 +55,7 @@ write.csv(bath, "./bath.csv", row.names = FALSE)
 #waterlevel data
 wtrlvl <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/725/4/43476abff348c81ef37f5803986ee6e1") 
 write.csv(wtrlvl, "./wtrlvl.csv", row.names = FALSE)
+
+#waterlevel data using the pressure sensor (platform data) https://portal.edirepository.org/nis/metadataviewer?packageid=edi.725.4
+BVRplatform <- read.csv("https://portal.edirepository.org/nis/dataviewer?packageid=edi.725.4&entityid=9adadd2a7c2319e54227ab31a161ea12")
+write.csv(BVRplatform, "./BVRplatform.csv", row.names = FALSE)
