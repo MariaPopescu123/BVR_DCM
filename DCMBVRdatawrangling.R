@@ -15,7 +15,7 @@ pacman::p_load(tidyverse, lubridate, akima, reshape2,
 #CTD
 CTD <- read.csv("./CTD.csv")
 
-#flora 
+#flora
 current_df <- read.csv("./current_df.csv")
 
 # metals 
@@ -65,7 +65,9 @@ phytos <- current_df %>%
   mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))|>
   filter((hour(DateTime) >= 8), (hour(DateTime) <= 15))|>
   filter(!(CastID == 592))|> #filter out weird drop in 2017
-  filter(!(CastID == 395)) #weird drop in 2016
+  filter(!(CastID == 395))|> #weird drop in 2016
+  filter(Flag_Bluegreens_ugL != 2,Flag_Bluegreens_ugL != 3)|>
+  filter(Site == 50)
 
 DCM_BVRdata <- phytos %>%
   group_by(CastID) %>%
@@ -295,12 +297,7 @@ final_datasecPZ <- final_dataLAP |>
   mutate(Temp_C = rowMeans(cbind(Temp_C, interp_Temp_C), na.rm = TRUE))|>
   select(-interp_Temp_C)
 
-looking <- final_datasecPZ|>
-  mutate(DOY = yday(Date))|>
-  select(Date, DOY, Depth_m, DCM_depth, secchi_PZ, PAR_PZ, Zeu, Zeu_0.1)|>
-  filter(DOY>133, DOY<286)
 
-  
 #decided to use secchi based on exploring data availability and values across years)
 
 
@@ -344,6 +341,9 @@ final_datanutrients <- final_datasecPZ %>%
   mutate(Site = 50)|>
   relocate(Reservoir, .before = 1)|>
   relocate(Site, .before = 1)
+
+
+conflicts_prefer(dplyr::filter)
 
 #### NP ratio  ####
 calculate_np_ratio <- function(tn, tp) {
@@ -470,7 +470,7 @@ final_datamet <- final_datanpratio|>
 
 # Dataframe with thermocline
 thermocline_df <- final_datamet |>
-  group_by(CastID, Depth_m) |>
+  group_by(CastID, Date, Depth_m) |>
   summarize(Temp_C = mean(Temp_C, na.rm = TRUE)) |>
   ungroup() |>
   group_by(CastID) |>
@@ -480,8 +480,9 @@ thermocline_df <- final_datamet |>
     Smin = 2, 
     seasonal = TRUE, 
     index = FALSE,
-    mixed.cutoff = 1
-  )) 
+    mixed.cutoff = 3
+  )) |>
+  ungroup()
 
 #add to frame
 final_datathermocline <- final_datanpratio|>
@@ -493,6 +494,12 @@ final_datathermo <- final_datathermocline|>
   ungroup()|>
   relocate(thermocline_depth, .before = Temp_C)
 
+final_datathermo <- final_datathermo|>
+  mutate(Date = Date.x)|>
+  mutate(thermocline_depth = if_else(Date %in% c("2022-06-27", "2022-08-08"), 3, thermocline_depth))|>
+  mutate(thermocline_depth = if_else(!Date %in% c("2016-05-19", "2016-08-23", "2018-06-21", "2021-08-09", "2021-09-06"), NA_real_, thermocline_depth))
+
+
 looking<- final_datathermo|>
   select(Date, CastID, Depth_m, Temp_C, thermocline_depth)
 
@@ -500,16 +507,34 @@ looking<- final_datathermo|>
 conflicts_prefer(dplyr::filter)
 
 plot_data <- final_datathermo |>
-  filter(Date == as.Date("2021-09-06"))|> #change depths here to see a specific day and see if the thermocline matches up
+  filter(Date %in% c("2016-05-19"))|> #change depths here to see a specific day and see if the thermocline matches up
   select(Date, Depth_m, thermocline_depth, Temp_C)
+# Extract the thermocline depth for the specific date
+thermocline_depth_value <- unique(plot_data$thermocline_depth)
 
+# Create the plot
 ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
-  geom_point() +         # Add points, or any other geom you need
-  scale_y_reverse() +    # Inverts the y-axis
-  labs(x = "Temperature (°C)", y = "Depth (m)") +
-  theme_minimal()        # Optional: apply a clean theme
-
+  geom_point() +  # Add points
+  geom_hline(yintercept = thermocline_depth_value, linetype = "dashed", color = "red") +  # Add the thermocline line
+  scale_y_reverse() +  # Inverts the y-axis
+  labs(x = "Temperature (°C)", y = "Depth (m)", title = "Thermocline Depth on 2016-05-19") +
+  theme_minimal()  # Optional: apply a clean theme
 #need to fix the temperatures for 2014-09-25
+#"2016-05-19" should be 5ish but is 9.19
+#2016-08-23 should be closer to 5ish but is 6
+#2018-06-21 there really isn't stratficiation but the deepest temperature depth measurement is around 7
+# NA  2021-08-09 wouldn't considered stratified either 
+#"2022-06-27" also weird setting it to 3
+#"2022-08-08" setting it to 3 
+
+
+
+#very deep thermoclines
+#"2016-05-19" "2016-08-23" "2018-06-21" "2021-08-09"
+#"2021-09-06" "2022-06-27" "2022-08-08"
+
+
+
 
 ####metalimnion####
 
@@ -608,9 +633,9 @@ BVRbath <- bath|>
 library(signal)
 
 new_depths <- seq(0, 14, by = 0.01)
-interpolated_SA <- pchip(BVRbath$Depth_m, BVRbath$SA_m2, new_depths)
-interpolated_Volume_layer <- pchip(BVRbath$Depth_m, BVRbath$Volume_layer_L, new_depths)
-interpolated_Volume_below <- pchip(BVRbath$Depth_m, BVRbath$Volume_below_L, new_depths)
+interpolated_SA <- signal::pchip(BVRbath$Depth_m, BVRbath$SA_m2, new_depths)
+interpolated_Volume_layer <- signal::pchip(BVRbath$Depth_m, BVRbath$Volume_layer_L, new_depths)
+interpolated_Volume_below <- signal::pchip(BVRbath$Depth_m, BVRbath$Volume_below_L, new_depths)
 
 #new bathymetry dataframe with finer sequence
 BVRbath_interpolated <- data.frame(
@@ -781,7 +806,7 @@ final_data0 <- final_data_water |>
 ####correlations####
 #removed buoyancy_freq for now bc had -inf will come back to
 
-####daily DCM dataframe with daily averages####
+####DCM_final with daily averages####
 #removed water level for now
 
 # Create a vector of variable names that need to be summarized
@@ -819,7 +844,8 @@ DCM_final <- final_data0 |>
     thermocline_depth = mean(thermocline_depth, na.rm = TRUE),
     WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE),
     .groups = "drop"  # Ungroup to prevent grouping issues in the following steps
-  )
+  )|>
+  filter(Bluegreens_DCM_conc > 20)
 
 # Loop through the depth_variables to calculate the depth at which the maximum value occurs for each date
 for (var in depth_variables) {
@@ -879,7 +905,7 @@ DCM_final <- DCM_final |>
 
 
 
-write.csv(DCM_final,"./DCM_final.csv",row.names = FALSE)
+#write.csv(DCM_final,"./DCM_final.csv",row.names = FALSE)
 
 
 
@@ -1191,7 +1217,15 @@ ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
   labs(x = "Year", y = "Peak Magnitude", color = "Bluegreens ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-####RandomForest All Data####
+
+#### plot TC, DCM, and PAR####
+ggplot(DCM_final, aes(x = PZ, y = Bluegreens_DCM_depth, color = thermocline_depth))+
+  geom_point()
+
+
+looking<- DCM_final%>%
+  filter(thermocline_depth >6)
+####RandomForest Anually####
 
 #"We constructed a RF of 1500 trees for each of the two response
 #variables using 1% PAR depth (m), DOC concentration (mg L21),
@@ -1206,7 +1240,7 @@ library(missForest)
 #trying within a year
 #years that do not have enough data:
 yearDCM_final <- DCM_final |>
-  filter(year(Date) == 2015) |>
+  filter(year(Date) == 2023) |>
   mutate(DOY = yday(Date)) |>
   select(where(~ mean(is.na(.)) <= 0.5))
 
@@ -1229,6 +1263,7 @@ cols_to_interpolate <- cols_to_interpolate[!cols_to_interpolate %in% cols_to_exc
 
 library(pracma)
 
+#this is not appropriate
 # Loop through each column and apply pchip interpolation
 for (col in cols_to_interpolate) {
   # Identify rows with non-NA values for the current column
@@ -1258,6 +1293,10 @@ train_data_imputed <- na.roughfix(train_data_no_non_numeric)
 train_data_imputed_z <- train_data_imputed %>%
   mutate(across(everything(), ~ scale(.)))
 
+#for 2022 leave out waterlevel bc too many NAs
+#train_data_imputed_z <- train_data_imputed_z|>
+#  select(-WaterLevel_m)
+
 # Add the excluded non-numeric columns (e.g., Date) back to the imputed dataset
 model_rf <- randomForest(Bluegreens_DCM_depth ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
 
@@ -1265,24 +1304,38 @@ importance(model_rf)
 
 #visualize
 importance_df <- as.data.frame(importance(model_rf))
+importance_df <- rownames_to_column(importance_df, var = "Variable") # Convert row names to a column
 
-# Convert row names to a column
-importance_df <- rownames_to_column(importance_df, var = "Variable")
-
-# Filter for positive %IncMSE values
 filtered_importance_df <- importance_df %>%
-  filter(!is.na(`%IncMSE`), `%IncMSE` > 0)
+  filter(!is.na(`%IncMSE`), `%IncMSE` > 0)# Filter for positive %IncMSE values
+
 
 # Create the plot
 ggplot(filtered_importance_df, aes(x = `%IncMSE`, y = reorder(Variable, `%IncMSE`))) +
   geom_point(color = "blue", size = 3) +
   labs(
-    title = "Variable Importance based on % IncMSE 2015",
+    title = "Variable Importance based on % IncMSE 2023",
     x = "% IncMSE",
     y = "Variables"
   ) +
+  e
   theme_minimal()
 
-####randomforest within one day####
+####RF across years including the max day for each year####
+DCM_final_maxdays<- DCM_final%>%
+  filter(Date %in% c("2014-08-13", "2015-08-08", "2016-06-16", "2017-07-20", "2018-08-16", "2019-06-06",
+                       "2020-09-16", "2021-08-09", "2022-08-01", "2023-07-31"))%>%
+  mutate(DOY = yday(Date)) %>%
+  select(where(~ mean(is.na(.)) <= 0.5))
+  
+  
+  #%>%
+    filter(complete.cases(.))
+  
+#not appropriate to do random forest for this, too many NAs. Should not interpolate 
+  
+####RF within each day 
+maxDay_RF <- final_data0|>
+  
 
 
