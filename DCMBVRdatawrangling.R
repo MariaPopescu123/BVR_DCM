@@ -473,39 +473,50 @@ thermocline_df <- final_datamet |>
   )) |>
   ungroup()
 
+#fixing incorrect thermoclines
+thermocline_df_unique<- thermocline_df|>
+  filter(thermocline_depth<3)|>
+  group_by(Date)|>
+  filter(Depth_m > thermocline_depth)|>
+  mutate(thermocline_depth = thermo.depth(Temp_C, 
+                                          Depth_m, 
+                                          Smin = 2, 
+                                          seasonal = TRUE, 
+                                          index = FALSE,
+                                          mixed.cutoff = 3
+  ))|>
+  ungroup()
+
+both_merged<- thermocline_df|>
+  left_join(thermocline_df_unique, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")|>
+  mutate(thermocline_depth = coalesce(thermocline_depth.y, thermocline_depth.x))|>
+  mutate(Date = Date.x)|>
+  select(-Date.y, thermocline_depth.y, thermocline_depth.x)
+
 #add to frame
 final_datathermocline <- final_datanpratio|>
-  left_join(thermocline_df, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")
+  left_join(both_merged, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")
 
-final_datathermo <- final_datathermocline|>
+initial_thermo <- final_datathermocline|>
   group_by(CastID)|>
   fill(thermocline_depth, .direction = "updown")|>
   ungroup()|>
   relocate(thermocline_depth, .before = Temp_C)
 
-final_datathermo <- final_datathermo|>
-  mutate(Date = Date.x)|>
+final_datathermo <- initial_thermo|>
+  mutate(Date = Date.x.x)|>
   #thermocline added manually via plot inspection
   mutate(thermocline_depth = if_else(Date %in% c("2022-06-27", "2022-08-08"), 3, thermocline_depth))|>
   mutate(thermocline_depth = if_else(!Date %in% c("2016-05-19", "2016-08-23","2021-08-09"),thermocline_depth, 5.2))|>
-  mutate(thermocline_depth = if_else(!Date %in% c("2018-06-21"), thermocline_depth, NA_real_))
-
-
-looking<- final_datathermo|>
-  select(Date, CastID, Depth_m, Temp_C, thermocline_depth)
+  mutate(thermocline_depth = if_else(!Date %in% c("2018-06-21"), thermocline_depth, NA_real_))|>
+  group_by(Date)|>
+  mutate(thermocline_depth = mean(thermocline_depth), na.rm = TRUE)
 
 #checking to make sure the thermocline is where I expect
 conflicts_prefer(dplyr::filter)
 
-#"2014-09-25" is calculated as 0.495 but visual inspection indicates 6
-#"2016-05-26" is calculated as 2.363362 but visual inspection indicates 5
-#"2016-06-02" is calculated as 1.710418 but visual inspection indicates 4
-#"2017-05-18" is calculated as 2.245152 but visual inspection indicates 4 (???)
-#"2017-06-15" is calculated as 1.161703 but visual inspection indicates ____ (???)
-#"2017-06-22" is calculated as 2.137789 but visual inspection indicates ____
-
 plot_data <- final_datathermo |>
-  filter(Date %in% c("2014-09-25"))|> #change depths here to see a specific day and see if the thermocline matches up
+  filter(Date %in% c("2023-05-22"))|> #change depths here to see a specific day and see if the thermocline matches up
   select(Date, Depth_m, thermocline_depth, Temp_C)
 # Extract the thermocline depth for the specific date for the line
 thermocline_depth_value <- unique(plot_data$thermocline_depth)
@@ -553,7 +564,7 @@ final_datameta <- final_datatempadjust |>
   arrange(Date, CastID, Depth_m) |>
   summarise(
     # Calculate the metalimnion depths based on the temperature
-    metalimnion_depths = list(meta.depths(Depth_m, Temp_C)), 
+    metalimnion_depths = list(meta.depths(Temp_C, Depth_m, slope = 0.1, seasonal = TRUE, mixed.cutoff = 1)), 
     .groups = 'drop'
   ) |>
   mutate(
@@ -582,9 +593,20 @@ ggplot(plot_dat, aes(x = Temp_C, y = Depth_m))+
              linetype = "dashed") +  # Line type (dashed, solid, etc.)
   theme_minimal()
 
+#calculate thickness of metalimnion
+alldata_andmetacalc <- final_datathermometa|>
+  mutate(metalimnion_upper = if_else(is.na(metalimnion_upper), NA_real_, metalimnion_upper))|>
+  mutate(metalimnion_lower = if_else(is.na(metalimnion_lower), NA_real_, metalimnion_lower))|>
+  mutate(metalimnion_lower = if_else(thermocline_depth > metalimnion_lower | thermocline_depth < metalimnion_upper, NA_real_, metalimnion_lower), #if thermocline falls outside the indicated metalimnion, the metalimnion is calculated incorrectly
+   metalimnion_upper = if_else(thermocline_depth > metalimnion_lower | thermocline_depth < metalimnion_upper, NA_real_, metalimnion_upper))|>
+  mutate(meta_width = (metalimnion_lower-metalimnion_upper))|>
+  select(-Date.y, -na.rm, -thermocline_depth.y, -thermocline_depth.x, -Date.x.x, -Date.x)|>
+  mutate(meta_width = if_else(is.na(thermocline_depth), NA_real_, meta_width))
+
+
 ####Buoyancy Frequency ####
 
-final_databuoy <- final_datathermo|>
+final_databuoy <- alldata_andmetacalc|>
   group_by(CastID)|>
   mutate(buoyancy_freq = c(buoyancy.freq(Temp_C, Depth_m), NA))|>#added for padding for the last value
   relocate(buoyancy_freq, .before = thermocline_depth)
@@ -592,34 +614,60 @@ final_databuoy <- final_datathermo|>
 
 ####Waterlevels####
 
-wtrlvl2 <- wtrlvl|>
-  mutate(Date = as.Date(DateTime))|>
-  select(Date, WaterLevel_m)
+#list of DOY for interpolation purpose
+DOY_list <- 32:334  # DOYs from February 1 to November 30
+years <- unique(year(wtrlvl2$Date))
+DOY_year_ref <- expand.grid(Year = years, DOY = DOY_list)|>
+  arrange(Year, DOY)
 
-final_data_water <- final_databuoy|>
-  left_join(wtrlvl2, by = c("Date"), relationship = "many-to-many")|>
+#Add DOY and Year columns to wtrlvl2, then join with DOY_year_ref
+wtrlvl2 <- wtrlvl2 |>
+  mutate(Year = year(Date), DOY = yday(Date))
+
+#join and interpolate WaterLevel_m for each DOY in each year
+wtrlvl2_interpolated <- DOY_year_ref |>
+  left_join(wtrlvl2, by = c("Year" = "Year", "DOY" = "DOY")) |>
+  group_by(Year) |>
   mutate(
-    # For rows where 'value' from wtrlvl2 is NA after the join,
-    # find the closest date in wtrlvl2 and get the corresponding value
-    WaterLevel_m = ifelse(
-      is.na(WaterLevel_m),
-      sapply(Date, function(d) {
-        closest_date <- wtrlvl2$Date[which.min(abs(difftime(wtrlvl2$Date, d, units = "days")))]
-        wtrlvl2$WaterLevel_m[wtrlvl2$Date == closest_date]
-      }),
-      WaterLevel_m
-    )
-  )
+    WaterLevel_m = na.approx(WaterLevel_m, x = DOY, na.rm = FALSE)
+  )|>
+  filter(Year > 2013)|>
+  arrange(Year, DOY)
 
+#now for past 2020 
+#Add DOY and Year columns to wtrlvl2, then join with DOY_year_ref
+BVRplatform2 <- BVRplatform |>
+  filter(Flag_LvlPressure_psi_13 != 5)|>#filter flags, questionable value but left in the dataset
+  mutate(Date = as.Date(DateTime))|>
+  mutate(Year = year(Date), DOY = yday(Date))
 
-#dates in 2022 that are still NA but the water levels before and after are 10.17 and 10.10
-final_data_water<- final_data_water|>
-  mutate(WaterLevel_m = if_else(is.na(WaterLevel_m) & year(Date) == 2022, 10.135, WaterLevel_m))
+#join and interpolate WaterLevel_m for each DOY in each year
+BVRplatform2_interpolated <- DOY_year_ref |>
+  left_join(BVRplatform2, by = c("Year" = "Year", "DOY" = "DOY")) |>
+  group_by(Year) |>
+  mutate(
+    LvlDepth_m_13 = na.approx(LvlDepth_m_13, x = DOY, na.rm = FALSE)
+  )|>
+  filter(Year > 2019, Site == 50)|>
+  arrange(Year, DOY)|>
+  select(Year, DOY, DateTime, LvlDepth_m_13)
 
+water_levelsjoined <- DOY_year_ref|>
+  left_join(BVRplatform2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
+  left_join(wtrlvl2_interpolated, by = c("Year", "DOY"))|>
+  filter(Year>2013)
+
+water_levelscoalesced<- water_levelsjoined|>
+  mutate(WaterLevel_m = coalesce(LvlDepth_m_13,WaterLevel_m))|>
+  select(Year, DOY, WaterLevel_m)
+   
+final_data_water<- final_databuoy|>
+  mutate(DOY = yday(Date))|>
+  mutate(Year = year(Date))|>
+  left_join(water_levelscoalesced, by = c("DOY", "Year"), relationship = "many-to-many" )
 
 #SKIP THIS FOR NOW. GO TO PEAK WIDTH
 #need to add the bathymetry here for surface area at different depths
-#to calculate epilimnion, meta, and hypo
 
 BVRbath <- bath|>
   filter(Reservoir == "BVR")
@@ -666,8 +714,7 @@ ggplot(question, aes(x = Date, y = difference))+
 
 #look at BVRbath for bathymetry comparisons
 
-
-
+#SKIP THIS FOR NOW GO TO PEAK
 ####whole lake temp####
 #Calculates volumetrically weighted average whole lake temperature using the supplied water temperature timeseries.
 
@@ -893,10 +940,6 @@ DCM_final <- DCM_final |>
          everything())|>  # Include all max and min depth columns added
   rename_with(~ gsub("max_depth_(.*)", "max_\\1_depth", .), starts_with("max_depth_"))|>
   rename_with(~ gsub("min_depth_(.*)", "min_\\1_depth", .), starts_with("min_depth_"))
-
-
-
-
 
 #write.csv(DCM_final,"./DCM_final.csv",row.names = FALSE)
 
