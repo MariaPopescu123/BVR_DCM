@@ -10,7 +10,7 @@ pacman::p_load(tidyverse, lubridate, akima, reshape2,
 
 #### Loading Data  ####
 
-#ctd data
+#ctd data https://portal.edirepository.org/nis/metadataviewer?packageid=edi.200.14
 CTD <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/200/14/0432a298a90b2b662f26c46071f66b8a")
 write.csv(CTD, "./CTD.csv", row.names = FALSE )
 

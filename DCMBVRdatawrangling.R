@@ -180,8 +180,7 @@ ysi_profiles_filtered <- ysi_profiles |>
             pH = mean(pH, na.rm = TRUE),
             Temp_C = mean(Temp_C, na.rm = TRUE))
 
-
-CTDfiltered <- CTD|>
+CTDfiltered <- CTD|> #flag 2, instrument malfunction. haven't removed flags yet
   filter(Reservoir == "BVR", Site == 50)|>
   mutate(Date = as_date(DateTime))|>
   group_by(Date, Depth_m)|>
@@ -954,7 +953,7 @@ correlations <- function(year1, year2) {
     filter(month(Date) > 4, month(Date) < 10) |>
     filter(Bluegreens_DCM_conc > 20)
   
-  drivers_cor <- cor(DCM_final_cor[,c(2:64)],
+  drivers_cor <- cor(DCM_final_cor[,c(2:65)],
                      method = "spearman", use = "pairwise.complete.obs")
  
   list(drivers_cor = drivers_cor, DCM_final_cor = DCM_final_cor)
@@ -962,7 +961,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2014, 2023)
+results <- correlations(2014, 2014)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -982,6 +981,24 @@ significant_correlations <- final_data_cor_long |> # Filter correlations based o
   arrange(desc(abs(Freq)))# Sort by absolute correlation values
 
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
+
+significant_correlations <- significant_correlations |>
+  filter(Variable1 %in% c("Bluegreens_DCM_depth", "Bluegreens_DCM_conc" ))|>
+  filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
+  mutate(Combined = paste(Variable1, "vs", Variable2))
+
+# Plot to visualize correlations
+ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Correlation))) +
+  geom_bar(stat = "identity", fill = "steelblue") +  # Use a bar plot
+  geom_text(aes(label = round(Correlation, 2)), 
+            position = position_stack(vjust = 0.5), 
+            color = "white") +  # Add correlation values as text on bars
+  labs(title = "Significant Correlations (Cutoff 0.65) 2014-2023",
+       x = "Correlation Value",
+       y = "Variable Pairs") +
+  theme_minimal() +  # Use a minimal theme
+  theme(axis.text.y = element_text(size = 10),  # Adjust y-axis text size
+        plot.title = element_text(hjust = 0.5))  # Center the title
 
 ####correlations across years,max day each year####
 
