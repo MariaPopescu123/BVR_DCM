@@ -50,6 +50,17 @@ wtrlvl <- read.csv("./wtrlvl.csv")
 #waterlevel platform data (for past 2020)
 BVRplatform <- read.csv("./BVRplatform.csv")
 
+
+#just looking remove when done. let's see the flags
+#coming back to this
+unique_dates_2018 <- current_df |>
+  mutate(Date = as.Date(DateTime))|>
+  filter((Flag_Bluegreens_ugL == 3) & year(Date) == 2018)|>
+  select(Date, Depth_m, Bluegreens_ugL, Flag_Bluegreens_ugL)
+
+# View the count of unique dates
+unique_dates_2018
+
 #adding columns with total_conc max and the depth at which it occurs
 phytos <- current_df %>% 
   filter(Reservoir == "BVR", Site == 50)%>%
@@ -57,7 +68,7 @@ phytos <- current_df %>%
   filter((hour(DateTime) >= 8), (hour(DateTime) <= 15))|>
   filter(!(CastID == 592))|> #filter out weird drop in 2017
   filter(!(CastID == 395))|> #weird drop in 2016
-  filter(Flag_Bluegreens_ugL != 2,Flag_Bluegreens_ugL != 3)|>
+  filter(Flag_Bluegreens_ugL != 2,Flag_Bluegreens_ugL != 3)|> #2 is instrument malfunction and #3 is low transmission value
   group_by(CastID)|>
   mutate(Bluegreens_DCM_conc = max(Bluegreens_ugL, na.rm = TRUE))|> #concentration of bluegreens at bluegreens DCM
   mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))|>
@@ -506,8 +517,9 @@ final_datathermo <- initial_thermo|>
   mutate(Date = Date.x.x)|>
   #thermocline added manually via plot inspection
   mutate(thermocline_depth = if_else(Date %in% c("2022-06-27", "2022-08-08"), 3, thermocline_depth))|>
-  mutate(thermocline_depth = if_else(!Date %in% c("2016-05-19", "2016-08-23","2021-08-09"),thermocline_depth, 5.2))|>
-  mutate(thermocline_depth = if_else(!Date %in% c("2018-06-21"), thermocline_depth, NA_real_))|>
+  mutate(thermocline_depth = if_else(!Date %in% c("2016-05-19", "2016-08-23","2021-08-09", "2019-09-04"),thermocline_depth, 5.2))|>
+  mutate(thermocline_depth = if_else(!Date %in% c("2018-06-21", "2016-10-25"), thermocline_depth, NA_real_))|> #watercolumn mixed
+  mutate(thermocline_depth = if_else(Date %in% c("2020-08-06"), 3.75, thermocline_depth))|>
   group_by(Date)|>
   mutate(thermocline_depth = mean(thermocline_depth), na.rm = TRUE)
 
@@ -515,7 +527,7 @@ final_datathermo <- initial_thermo|>
 conflicts_prefer(dplyr::filter)
 
 plot_data <- final_datathermo |>
-  filter(Date %in% c("2023-05-22"))|> #change depths here to see a specific day and see if the thermocline matches up
+  filter(Date %in% c("2019-09-04"))|> #change depths here to see a specific day and see if the thermocline matches up
   select(Date, Depth_m, thermocline_depth, Temp_C)
 # Extract the thermocline depth for the specific date for the line
 thermocline_depth_value <- unique(plot_data$thermocline_depth)
@@ -525,23 +537,22 @@ ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
   geom_point() +  # Add points
   geom_hline(yintercept = thermocline_depth_value, linetype = "dashed", color = "red") +  # Add the thermocline line
   scale_y_reverse() +  # Inverts the y-axis
-  labs(x = "Temperature (°C)", y = "Depth (m)", title = "Thermocline Depth on 2017-06-22") +
+  labs(x = "Temperature (°C)", y = "Depth (m)", title = "Thermocline Depth on 2016-10-25") +
   theme_minimal()  # Optional: apply a clean theme
-#need to fix the temperatures for 2014-09-25
-#"2016-05-19" should be 5ish but is 9.19
-#2016-08-23 should be closer to 5ish but is 6
-#2018-06-21 there really isn't stratficiation but the deepest temperature depth measurement is around 7
-# NA  2021-08-09 wouldn't considered stratified either 
-#"2022-06-27" also weird setting it to 3
-#"2022-08-08" setting it to 3 
+
+
+#visualize thermocline depth across all years
+ggplot(final_datathermo, aes(x = Date, y = thermocline_depth))+
+  scale_y_reverse()+
+  geom_line()
+#2016-10-11 looks very deep but it is real
 
 
 
-#very deep thermoclines
-#"2016-05-19" "2016-08-23" "2018-06-21" "2021-08-09"
-#"2021-09-06" "2022-06-27" "2022-08-08"
+#very deep thermoclines not fixed yet
+#"2021-09-06" recalculate this thermocline. currently at 6.75 and it looks closer to 5
 
-
+#2019-09-04
 
 
 ####metalimnion####
@@ -842,11 +853,8 @@ final_data0 <- final_data_water |>
 
 
 
-####correlations####
+####DCM depth correlations####
 #removed buoyancy_freq for now bc had -inf will come back to
-
-####DCM_final with daily averages####
-#removed water level for now
 
 # Create a vector of variable names that need to be summarized
 depth_variables <- c("Temp_C", "np_ratio", "SFe_mgL", "TFe_mgL", 
@@ -881,6 +889,7 @@ DCM_final <- final_data0 |>
     PZ = mean(PZ, na.rm = TRUE),
     Zeu = mean(Zeu, na.rm = TRUE),
     thermocline_depth = mean(thermocline_depth, na.rm = TRUE),
+    meta_width = mean(meta_width, .na.rm = TRUE),
     WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE),
     .groups = "drop"  # Ungroup to prevent grouping issues in the following steps
   )|>
@@ -934,7 +943,7 @@ for (var in depth_variables) {
 # Finalize the DCM_final data frame
 DCM_final <- DCM_final |>
   mutate(DayOfYear = yday(Date)) |>
-  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, peak.top, peak.bottom, peak.width, peak.magnitude,
+  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, meta_width, peak.magnitude,
          secchi_PZ, PAR_PZ, PZ, Zeu, DCM_buoyancy_freq, thermocline_depth, WaterLevel_m, 
          everything())|>  # Include all max and min depth columns added
   rename_with(~ gsub("max_depth_(.*)", "max_\\1_depth", .), starts_with("max_depth_"))|>
@@ -953,7 +962,7 @@ correlations <- function(year1, year2) {
     filter(month(Date) > 4, month(Date) < 10) |>
     filter(Bluegreens_DCM_conc > 20)
   
-  drivers_cor <- cor(DCM_final_cor[,c(2:65)],
+  drivers_cor <- cor(DCM_final_cor[,c(2:66)],
                      method = "spearman", use = "pairwise.complete.obs")
  
   list(drivers_cor = drivers_cor, DCM_final_cor = DCM_final_cor)
@@ -961,7 +970,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2014, 2014)
+results <- correlations(2016, 2016)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -983,7 +992,7 @@ significant_correlations <- final_data_cor_long |> # Filter correlations based o
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
 significant_correlations <- significant_correlations |>
-  filter(Variable1 %in% c("Bluegreens_DCM_depth", "Bluegreens_DCM_conc" ))|>
+  filter(Variable1 %in% c("Bluegreens_DCM_depth"))|>
   filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
   mutate(Combined = paste(Variable1, "vs", Variable2))
 
@@ -1024,8 +1033,6 @@ significant_correlations <- maxdayscor_long |> # Filter correlations based on th
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 significant_correlations_sorted <- significant_correlations[order(significant_correlations$Variable1), ] #variable 1 sorted alphabetically 
 
-
-
 ####daily correlation, for choosing specific day####
 
 #these are the days that the max Bluegreens_ugL occurs. The biggest bloom. 
@@ -1038,6 +1045,7 @@ blooms <- final_data0|>
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
   ungroup()
   
+
 #"2014-08-13" "2015-08-08" "2016-06-16" "2017-07-20" "2018-08-16" "2019-06-06" "2020-09-16" "2021-08-09" "2022-08-01" "2023-07-31"
 #change date to see correlations for the singular day that max was the biggest
 daily_cor <- final_data0|>
@@ -1064,6 +1072,10 @@ significant_correlations <- daily_cor_long |> # Filter correlations based on the
 
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 significant_correlations_sorted <- significant_correlations[order(significant_correlations$Variable1), ] #variable 1 sorted alphabetically 
+
+
+
+
 
 
 
@@ -1295,7 +1307,9 @@ library(missForest)
 yearDCM_final <- DCM_final |>
  # filter(year(Date) == 2023) |>
   mutate(DOY = yday(Date)) |>
+  select(-peak.top, -max_pH_depth, -min_pH_depth, -min_Cond_uScm_depth, -max_Cond_uScm_depth, -peak.magnitude, -peak.bottom, -secchi_PZ, -PAR_PZ, -max_Cond_uScm_depth, -DayOfYear, -min_Cond_uScm_depth, -min_CH4_umolL_depth, -max_CH4_umolL_depth)|>
   select(where(~ mean(is.na(.)) < 0.5))
+
 
  # select(-DCM_buoyancy_freq)#just for 2021
 
@@ -1320,18 +1334,19 @@ yearDCM_final <- DCM_final |>
   
   #this is not appropriate
   # Loop through each column and apply pchip interpolation
+  yearDCM_final <- yearDCM_final[order(yearDCM_final$DOY), ]
+  
   for (col in cols_to_interpolate) {
     # Identify rows with non-NA values for the current column
     non_na_rows <- !is.na(yearDCM_final[[col]])
     
-    # Perform PCHIP interpolation only on non-NA values for the current column
+    # Perform PCHIP interpolation only on non-NA values
     yearDCM_final[[col]][!non_na_rows] <- pracma::pchip(
-      yearDCM_final$DOY[non_na_rows],          # DOY values where the column is not NA
-      yearDCM_final[[col]][non_na_rows],       # Column values where not NA
-      yearDCM_final$DOY[!non_na_rows]          # DOY values where the column is NA
+      yearDCM_final$DOY[non_na_rows],           # DOY values where the column is not NA
+      yearDCM_final[[col]][non_na_rows],        # Column values where not NA
+      yearDCM_final$DOY[!non_na_rows]           # DOY values where the column is NA
     )
   }
-  
   # 
   
   set.seed(123) # Setting seed for reproducibility
@@ -1393,19 +1408,65 @@ yearDCM_final <- DCM_final |>
   
 
 
-####RF across years including the max day for each year####
-#not appropriate to do random forest for this, too many NAs. Should not interpolate 
-DCM_final_maxdays<- DCM_final%>%
-  filter(Date %in% c("2014-08-13", "2015-08-08", "2016-06-16", "2017-07-20", "2018-08-16", "2019-06-06",
-                       "2020-09-16", "2021-08-09", "2022-08-01", "2023-07-31"))%>%
-  mutate(DOY = yday(Date)) %>%
-  select(where(~ mean(is.na(.)) <= 0.5))
-  
-  
-  #%>%
-    filter(complete.cases(.))
-  
+####RF bluegreens magnitude####
+#looking at variable concentrations/measurements AT DCM
 
+  # Create a vector of variable names that need to be summarized
+  depth_variables <- c("Temp_C", "np_ratio", "SFe_mgL", "TFe_mgL", 
+                       "SMn_mgL", "SCa_mgL", "TCa_mgL", 
+                       "TCu_mgL", "SBa_mgL", "TBa_mgL", 
+                       "CO2_umolL", "CH4_umolL", "DO_mgL", 
+                       "DOsat_percent", "Cond_uScm", "ORP_mV", 
+                       "pH", "TN_ugL", "TP_ugL", 
+                       "NH4_ugL", "NO3NO2_ugL", "SRP_ugL", 
+                       "DOC_mgL", "DIC_mgL", "DC_mgL")
+  
+  DCM_depths <- list()
+  
+  # Process to obtain the concentrations at Bluegreens_DCM_depth for each variable
+  DCM_final_conc <- final_data0 |>
+    mutate(Date = as.Date(Date)) |>
+    filter(month(Date) >= 4, month(Date) < 10) |>
+    group_by(Date) |>
+    mutate(DCM_buoyancy_freq = if_else(DCM == TRUE, buoyancy_freq, NA_real_)) |>
+    fill(DCM_buoyancy_freq, .direction = "updown") |>
+    summarise(
+      DCM_buoyancy_freq = mean(DCM_buoyancy_freq, na.rm = TRUE),
+      Bluegreens_DCM_depth = mean(Bluegreens_DCM_depth, na.rm = TRUE),
+      Bluegreens_DCM_conc = mean(Bluegreens_DCM_conc, na.rm = TRUE),
+      peak.top = mean(peak.top, na.rm = TRUE),
+      peak.bottom = mean(peak.bottom, na.rm = TRUE),
+      peak.width = mean(peak.width, na.rm = TRUE),
+      peak.magnitude = mean(peak.magnitude, na.rm = TRUE),
+      secchi_PZ = mean(secchi_PZ, na.rm = TRUE),
+      PAR_PZ = mean(PAR_PZ, na.rm = TRUE),
+      PZ = mean(PZ, na.rm = TRUE),
+      Zeu = mean(Zeu, na.rm = TRUE),
+      thermocline_depth = mean(thermocline_depth, na.rm = TRUE),
+      WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE),
+      .groups = "drop"  # Ungroup to prevent grouping issues in following steps
+    ) |>
+    filter(Bluegreens_DCM_conc > 20)
+  
+  # Loop through depth_variables to join the concentration at Bluegreens_DCM_depth
+  for (var in depth_variables) {
+    DCM_final_conc <- DCM_final_conc |>
+      left_join(
+        final_data0 |>
+          filter(month(Date) >= 4, month(Date) < 10) |>
+          select(Date, Depth_m, !!sym(var)) |>
+          rename(Concentration = !!sym(var)) |>
+          group_by(Date) |>
+          filter(Depth_m == DCM_final_conc$Bluegreens_DCM_depth[match(Date, DCM_final_conc$Date)]) |>
+          summarise(!!paste0(var, "_at_DCM") := mean(Concentration, na.rm = TRUE)),
+        by = "Date"
+      )
+  }
+  
+  
+  DCM_final_conc|>
+    select(-peak.top, -peak.bottom, -peak.width, )
+  
 ####RF within each day 
 
 
