@@ -1409,8 +1409,8 @@ yearDCM_final <- DCM_final |>
 
 
 ####RF bluegreens magnitude####
-#looking at variable concentrations/measurements AT DCM
-
+#####make dataframe#####
+  
   # Create a vector of variable names that need to be summarized
   depth_variables <- c("Temp_C", "np_ratio", "SFe_mgL", "TFe_mgL", 
                        "SMn_mgL", "SCa_mgL", "TCa_mgL", 
@@ -1467,7 +1467,111 @@ yearDCM_final <- DCM_final |>
   DCM_final_conc|>
     select(-peak.top, -peak.bottom, -peak.width, )
   
-####RF within each day 
+  
+  
+  #####run RF#####
+  library(randomForest)
+  library(missForest)
+  
+  #trying within a year
+  yearDCM_final <- DCM_final_conc |>
+    # filter(year(Date) == 2023) |>
+    mutate(DOY = yday(Date)) |>
+    select(where(~ mean(is.na(.)) < 0.5))
+  
+  
+  # select(-DCM_buoyancy_freq)#just for 2021
+  
+  # List of columns to apply the interpolation to (excluding Date and DOY)
+  cols_to_interpolate <- c()
+  
+  # Loop through each column name in yearDCM_final
+  for (col in colnames(yearDCM_final)) {
+    # Check if the column has at least 3 non-NA observations
+    if (sum(!is.na(yearDCM_final[[col]])) >= 3) {
+      cols_to_interpolate <- c(cols_to_interpolate, col)  # Add column to list if condition is met
+    }
+  }
+  
+  # If you want to exclude specific columns (e.g., Date and DOY):
+  cols_to_exclude <- c("Date", "DOY")
+  
+  # Loop through and filter out the excluded columns
+  cols_to_interpolate <- cols_to_interpolate[!cols_to_interpolate %in% cols_to_exclude]
+  
+  library(pracma)
+  
+  #this is not appropriate
+  # Loop through each column and apply pchip interpolation
+  yearDCM_final <- yearDCM_final[order(yearDCM_final$DOY), ]
+  
+  for (col in cols_to_interpolate) {
+    # Identify rows with non-NA values for the current column
+    non_na_rows <- !is.na(yearDCM_final[[col]])
+    
+    # Perform PCHIP interpolation only on non-NA values
+    yearDCM_final[[col]][!non_na_rows] <- pracma::pchip(
+      yearDCM_final$DOY[non_na_rows],           # DOY values where the column is not NA
+      yearDCM_final[[col]][non_na_rows],        # Column values where not NA
+      yearDCM_final$DOY[!non_na_rows]           # DOY values where the column is NA
+    )
+  }
+  # 
+  
+  set.seed(123) # Setting seed for reproducibility
+  index <- sample(1:nrow(yearDCM_final), size = 0.7 * nrow(yearDCM_final))  # 70% training data
+  train_data <- yearDCM_final[index, ]
+  test_data <- yearDCM_final[-index, ]
+  non_numeric_columns <- sapply(train_data, function(x) !is.numeric(x) & !is.factor(x))
+  train_data_no_non_numeric <- train_data %>% select(-which(non_numeric_columns))
+  
+  # Apply na.roughfix() to impute missing values in numeric and factor columns
+  train_data_imputed <- na.roughfix(train_data_no_non_numeric)
+  
+  #z-transform
+  train_data_imputed_z <- train_data_imputed %>%
+    mutate(across(everything(), ~ scale(.)))
+  
+  #when running RF for all years remove buoyancy freq
+  train_data_imputed_z<- train_data_imputed_z|>
+    select(-DCM_buoyancy_freq)
+  
+  train_data_imputed_z <- train_data_imputed_z %>%
+    na.omit()  # Removes any rows with NAs
+  
+  #for 2022 leave out waterlevel bc too many NAs
+  #train_data_imputed_z <- train_data_imputed_z|>
+  #  select(-WaterLevel_m)
+  
+  # Add the excluded non-numeric columns (e.g., Date) back to the imputed dataset
+  model_rf <- randomForest(Bluegreens_DCM_conc ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
+  
+  importance(model_rf)
+  
+  #visualize
+  importance_df <- as.data.frame(importance(model_rf))
+  importance_df <- rownames_to_column(importance_df, var = "Variable") # Convert row names to a column
+  
+  filtered_importance_df <- importance_df %>%
+    filter(!is.na(`%IncMSE`), `%IncMSE` > 0)# Filter for positive %IncMSE values
+  
+  #for all years
+  filtered_importance_df <- filtered_importance_df |>
+    filter(!Variable %in% c("peak.top", "pH_at_DCM", "min_pH_depth",  "min_Cond_uScm_depth", "max_Cond_uScm_depth", "peak.magnitude", "peak.bottom", "secchi_PZ", "PAR_PZ", "max_Cond_uScm_depth", "DayOfYear", "DOY", "min_Cond_uScm_dept", "min_CH4_umolL_depth", "max_CH4_umolL_depth"))
+  
+  
+  
+  # Create the plot
+  ggplot(filtered_importance_df, aes(x = `%IncMSE`, y = reorder(Variable, `%IncMSE`))) +
+    geom_point(color = "blue", size = 3) +
+    labs(
+      title = "Variable Importance based on % IncMSE 2014-2023",
+      x = "% IncMSE",
+      y = "Variables"
+    ) +
+    theme_minimal()
+  
+  
 
 
 
