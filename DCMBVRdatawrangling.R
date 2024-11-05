@@ -970,7 +970,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2016, 2016)
+results <- correlations(2014, 2019)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -1014,7 +1014,6 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
 DCM_final_maxdays_cor<- DCM_final|>
   filter(Date %in% c("2014-08-13", "2015-08-08", "2016-06-16", "2017-07-20", "2018-08-16", "2019-06-06", "2020-09-16", "2021-08-09", "2022-08-01", "2023-07-31"))
 
-
 maxdayscor <- cor(DCM_final_maxdays_cor[,c(2:64)], method = "spearman", use = "pairwise.complete.obs")
 
 maxdayscor[lower.tri(maxdayscor)] <- NA
@@ -1027,11 +1026,30 @@ maxdayscor_long <- as.data.frame(as.table(maxdayscor)) |>
 maxdayscor_long$Freq <- as.numeric(as.character(maxdayscor_long$Freq))
 
 significant_correlations <- maxdayscor_long |> # Filter correlations based on the cutoff of 0.65
-  filter(abs(Freq) >= 0.65) |>  # Apply cutoff for correlation
+  filter(abs(Freq) >= 0.7) |>  # Apply cutoff for correlation
   arrange(desc(abs(Freq)))# Sort by absolute correlation values
 
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
-significant_correlations_sorted <- significant_correlations[order(significant_correlations$Variable1), ] #variable 1 sorted alphabetically 
+
+significant_correlations <- significant_correlations |>
+  filter(Variable1 %in% c("Bluegreens_DCM_depth"))|>
+  filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
+  mutate(Combined = paste(Variable1, "vs", Variable2))
+
+
+significant_correlations$Combined <- paste(significant_correlations$Variable1, significant_correlations$Variable2, sep = " - ")
+
+ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Correlation))) +
+  geom_bar(stat = "identity", fill = "steelblue") +  # Use a bar plot
+  geom_text(aes(label = round(Correlation, 2)), 
+            position = position_stack(vjust = 0.5), 
+            color = "white") +  # Add correlation values as text on bars
+  labs(title = "Significant Correlations (Cutoff 0.65) 2014-2023",
+       x = "Correlation Value",
+       y = "Variable Pairs") +
+  theme_minimal() +  # Use a minimal theme
+  theme(axis.text.y = element_text(size = 10),  # Adjust y-axis text size
+        plot.title = element_text(hjust = 0.5))  # Center the title
 
 ####daily correlation, for choosing specific day####
 
@@ -1049,7 +1067,7 @@ blooms <- final_data0|>
 #"2014-08-13" "2015-08-08" "2016-06-16" "2017-07-20" "2018-08-16" "2019-06-06" "2020-09-16" "2021-08-09" "2022-08-01" "2023-07-31"
 #change date to see correlations for the singular day that max was the biggest
 daily_cor <- final_data0|>
-  filter(Date %in% c("2014-08-13"))|>
+  filter(Date %in% c("2019-06-06"))|>
   select("Depth_m", "Bluegreens_ugL", "TotalConc_ugL", "SFe_mgL", "TFe_mgL", "SMn_mgL", "SCa_mgL",
          "TCa_mgL", "TCu_mgL", "SBa_mgL", "TBa_mgL",
          "CO2_umolL", "CH4_umolL", "DO_mgL",
@@ -1073,8 +1091,28 @@ significant_correlations <- daily_cor_long |> # Filter correlations based on the
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 significant_correlations_sorted <- significant_correlations[order(significant_correlations$Variable1), ] #variable 1 sorted alphabetically 
 
+significant_correlations$Combined <- paste(significant_correlations$Variable1, significant_correlations$Variable2, sep = " - ")
+
+significant_correlations <- significant_correlations |>
+  filter(Variable1 %in% c("TotalConc_ugL", "Bluegreens_ugL"))|>
+  filter(!Variable2 %in% c("Depth_m"))|>
+  mutate(Combined = paste(Variable1, "vs", Variable2))
+
+ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Correlation))) +
+  geom_bar(stat = "identity", fill = "steelblue") +  # Use a bar plot
+  geom_text(aes(label = round(Correlation, 2)), 
+            position = position_stack(vjust = 0.5), 
+            color = "white") +  # Add correlation values as text on bars
+  labs(title = "Significant Correlations (Cutoff 0.65) 2019-06-06 (max 2019 conc, DCM depth 8.6)",
+       x = "Correlation Value",
+       y = "Variable Pairs") +
+  theme_minimal() +  # Use a minimal theme
+  theme(axis.text.y = element_text(size = 10),  # Adjust y-axis text size
+        plot.title = element_text(hjust = 0.5))  # Center the title
 
 
+looking<- final_data0|>
+  filter(Date %in% c("2019-06-06"))
 
 
 
