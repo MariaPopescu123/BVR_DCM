@@ -16,7 +16,7 @@ final_data0<- final_data0|>
 # Chlorophyll data for the line visualizing chl max on heatmaps
 
 chlorophyll_data <- final_data0 %>%
-  select(Date, Depth_m, Bluegreens_ugL)|>
+  select(Date, Depth_m, Bluegreens_ugL)|> #change to chl here if you want
   mutate(DayOfYear = yday(Date))|>
   group_by(Date) %>%
   slice(which.max(Bluegreens_ugL)) %>%
@@ -35,42 +35,24 @@ thermocline_df <- final_data0|>
   select(Reservoir, Date, thermocline_depth, Temp_C, Depth_m, Site)
 
 Photic_zone<- final_data0|>
-  select(Date, PAR_PZ)|>
+  select(Date, PZ)|>
   group_by(Date)|>
-  mutate(PAR_PZ = mean(PAR_PZ))|>
+  mutate(PZ = mean(PZ))|>
   mutate(DOY = yday(Date))
   
 
 #might be interesting to add lines for other phytos and see how they compare
 
-flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_data = NA, max_legend_value = NA, thermocline_df = NA, Photic_zone = NA)
+flora_heatmap <- function(fp_data, year, site, z, unitz, chlorophyll_data = NA, max_legend_value = NA)
 {
   
   #subset to relevant data
   fp <- fp_data %>%
-    filter(Reservoir == reservoir & year(DateTime) == year) %>%
-    select(CastID, DateTime, Depth_m, {{z}}) 
+    filter(year(DateTime) == year) %>%
+    select(CastID, DateTime, Depth_m, {{z}})
+    
   
   #slice by depth for each reservoir
-  if (reservoir == "FCR"){
-    
-    depths = seq(0.1, 9.3, by = 0.3)
-    df.final<-data.frame()
-    
-    for (i in 1:length(depths)){
-      
-      fp_layer <- fp %>% 
-        group_by(CastID) %>% 
-        slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-      
-      # Bind each of the data layers together.
-      df.final = bind_rows(df.final, fp_layer)
-      
-    }
-    
-    
-  } else if (reservoir == "BVR"){
-    
     depths = seq(0.1, 10, by = 0.3)
     df.final<-data.frame()
     
@@ -82,49 +64,6 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
       df.final = bind_rows(df.final, fp_layer)
       
     }
-    
-  } else if(reservoir == "CCR"){
-    
-    depths = seq(0.1, 20, by = 0.3)
-    df.final<-data.frame()
-    
-    for (i in 1:length(depths)){
-      
-      fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-      
-      # Bind each of the data layers together.
-      df.final = bind_rows(df.final, fp_layer)
-      
-    }
-  } else if(reservoir == "GWR"){
-    
-    depths = seq(0.1, 12, by = 0.3)
-    df.final<-data.frame()
-    
-    for (i in 1:length(depths)){
-      
-      fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-      
-      # Bind each of the data layers together.
-      df.final = bind_rows(df.final, fp_layer)
-      
-    }
-  } else if(reservoir == "SHR"){
-    
-    depths = seq(0.1, 30, by = 0.3)
-    df.final<-data.frame()
-    
-    for (i in 1:length(depths)){
-      
-      fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-      
-      # Bind each of the data layers together.
-      df.final = bind_rows(df.final, fp_layer)
-      
-    } 
-    
-  }
-  
   #wrangle final dataframe for plotting
   # Re-arrange the data frame by date
   fp_new <- arrange(df.final, DateTime)
@@ -141,17 +80,17 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
              !is.infinite(DOY) & !is.infinite(Depth_m) & !is.infinite(fp_new[[z]]))
   
   
-  fig_title <- paste(reservoir, year, "Site", site, z, sep = " ")
+  fig_title <- paste("BVR", year, "Site", site, z, sep = " ")
   
   interp <- interp(x=fp_new$DOY, y = fp_new$Depth_m, z = unlist(fp_new[z]),
-                   xo = seq(min(fp_new$DOY), max(fp_new$DOY), by = .1), 
+                   xo = seq(min(fp_new$DOY), max(fp_new$DOY), by = .001), #this is what i'm playing with right now
                    yo = seq(min(fp_new$Depth_m), max(fp_new$Depth_m), by = 0.01),
                    extrap = T, linear = T, duplicate = "strip")
   interp <- interp2xyz(interp, data.frame=T)
   
   # Prepare chlorophyll maxima data for line
   chlorophyll_data <- chlorophyll_data %>%
-    filter(Reservoir == reservoir & year(DateTime) == year & site == site) %>%
+    filter(year(DateTime) == year & site == site) %>%
     mutate(DOY = yday(DateTime))|>
     filter(DOY <= max(fp_new$DOY) & DOY >= min(fp_new$DOY))
   
@@ -166,7 +105,6 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
                        labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
     scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +
     geom_path(data = chlorophyll_data, aes(x = DOY, y = Depth_m, color = Bluegreens_ugL), size = 1.2) + # Color line by Bluegreens_ugL
-    geom_path(data = Photic_zone, aes(x = DOY, y = PAR_PZ), size = 1.2)+
     scale_color_gradient(low = "blue", high = "red") + # Adjust color scale as needed
     labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
     theme_bw()+
@@ -183,16 +121,16 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 #### flora ####
 {
   
-  b1 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2014, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2015, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data, Photic_zone = Photic_zone)
-  b3 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2016, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data, Photic_zone = Photic_zone)
-  b4 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2017, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2018, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b6 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2019, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2020, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2021, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2023, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = current_df, year = 2014, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = current_df, year = 2015, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = current_df, year = 2016, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = current_df, year = 2017, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = current_df, year = 2018, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b6 <- flora_heatmap(fp_data = current_df, year = 2019, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = current_df, year = 2020, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = current_df, year = 2021, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = current_df, year = 2022, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = current_df, year = 2023, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   
   bluegreens <- plot_grid(
     b1, b2, b3,
