@@ -14,6 +14,8 @@ dat <- read.csv("./current_df.csv")
 
 length(unique(dat$CastID)) 
 
+2022-08-18
+
 casts <- dat %>%
   mutate(Date = date(DateTime)) %>%
   select(Reservoir, Date, Site) %>%
@@ -25,9 +27,9 @@ casts <- dat %>%
 #change dates here
 sample_dat <- casts %>%
   filter(Reservoir == "BVR" & Site == 50 & Date %in%
-  c("2016-08-03","2016-08-04", "2016-08-11", "2016-08-23" ))|>
+  c("2022-08-18" ))|>
   mutate(SampleDepth = c(3.6), 
-         Date = factor(Date, levels = c("2016-08-03","2016-08-04", "2016-08-11", "2016-08-23")),
+         Date = factor(Date, levels = c("2022-08-18")),
          Date = as.Date(as.character(Date)))  # Convert factor back to Date
 
 

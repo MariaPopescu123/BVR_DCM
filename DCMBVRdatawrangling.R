@@ -50,17 +50,6 @@ wtrlvl <- read.csv("./wtrlvl.csv")
 #waterlevel platform data (for past 2020)
 BVRplatform <- read.csv("./BVRplatform.csv")
 
-
-#just looking remove when done. let's see the flags
-#coming back to this
-unique_dates_2018 <- current_df |>
-  mutate(Date = as.Date(DateTime))|>
-  filter((Flag_Bluegreens_ugL == 3) & year(Date) == 2018)|>
-  select(Date, Depth_m, Bluegreens_ugL, Flag_Bluegreens_ugL)
-
-# View the count of unique dates
-unique_dates_2018
-
 #adding columns with total_conc max and the depth at which it occurs
 phytos <- current_df %>% 
   filter(Reservoir == "BVR", Site == 50)%>%
@@ -68,20 +57,20 @@ phytos <- current_df %>%
   filter((hour(DateTime) >= 8), (hour(DateTime) <= 15))|>
   filter(!(CastID == 592))|> #filter out weird drop in 2017
   filter(!(CastID == 395))|> #weird drop in 2016
-  filter(Flag_Bluegreens_ugL != 2,Flag_Bluegreens_ugL != 3)|> #2 is instrument malfunction and #3 is low transmission value
+#  filter(Flag_TotalConc_ugL != 2,Flag_TotalConc_ugL != 3)|> #2 is instrument malfunction and #3 is low transmission value
   group_by(CastID)|>
-  mutate(Bluegreens_DCM_conc = max(Bluegreens_ugL, na.rm = TRUE))|> #concentration of bluegreens at bluegreens DCM
-  mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))|>
+  mutate(Totals_DCM_conc = max(TotalConc_ugL, na.rm = TRUE))|> #concentration of totals at totals DCM
+  mutate(Totals_DCM_depth = ifelse(TotalConc_ugL == Totals_DCM_conc, Depth_m, NA_real_))|>
   ungroup()
 
 DCM_BVRdata <- phytos %>%
   group_by(CastID) %>%
-  fill(Bluegreens_DCM_conc, .direction = "downup")|>
-  fill(Bluegreens_DCM_depth, .direction = "downup")|>
+  fill(Totals_DCM_conc, .direction = "downup")|>
+  fill(Totals_DCM_depth, .direction = "downup")|>
   ungroup()%>%
   mutate(DOY = yday(DateTime))%>%
   mutate(Date  = as_date(DateTime)) |> 
-  select(Date, DateTime, CastID, Depth_m, Bluegreens_DCM_conc, Bluegreens_DCM_depth, Bluegreens_ugL, TotalConc_ugL,  Temp_C)
+  select(Date, DateTime, CastID, Depth_m, Totals_DCM_conc, Totals_DCM_depth, TotalConc_ugL,  Temp_C)
 
 #### metals  ####
 {
@@ -148,7 +137,7 @@ DCM_BVRwmetalsghgs <- DCM_BVRwmetals |>
   left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many")|>
   select(-CO2_umolL, -CH4_umolL)|>
   filter(Depth_m %in% DCM_BVRwmetals$Depth_m)|> #filtering to make sure only the values with the depths in fluoroprobe data are brought in
-  mutate(DCM = (Bluegreens_DCM_depth==Depth_m))|>
+  mutate(DCM = (Totals_DCM_depth==Depth_m))|>
   relocate(DCM, .before = 8)
 }
 
@@ -663,7 +652,7 @@ BVRplatform2_interpolated <- DOY_year_ref |>
   select(Year, DOY, DateTime, LvlDepth_m_13)
 
 water_levelsjoined <- DOY_year_ref|>
-  left_join(BVRplatform2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
+  left_join(BVRplatform2_interpolated, by = c("Year", "DOY"))|>
   left_join(wtrlvl2_interpolated, by = c("Year", "DOY"))|>
   filter(Year>2013)
 
@@ -715,7 +704,7 @@ final_bathy <- bathytest |>
   )
 
 question<- final_bathy|>
-  select(Date, Depth_m, Bluegreens_ugL, tempbathdepths, WaterLevel_m, Dadjust, SA_m2, Volume_layer_L, Volume_below_L)|>
+  select(Date, Depth_m, TotalConc_ugL, tempbathdepths, WaterLevel_m, Dadjust, SA_m2, Volume_layer_L, Volume_below_L)|>
   group_by(Date)|>
   mutate(difference = max(Depth_m)- WaterLevel_m)
 
@@ -749,8 +738,7 @@ looking<- lake_temp|>
   select(Date, Depth_m, whole_lake_temp)
 
 ####Peak.width####
-#use blue_mean not blue_median
-#focusing on bluegreens
+#focusing on totals
 
 #separate data frame for peak widths, depths, and magnitude calculations
 for_peaks <- final_data_water|> #type in here the last frame that it matches up with (coming back to this because can't get whole lake to work)
@@ -761,16 +749,16 @@ for_peaks <- final_data_water|> #type in here the last frame that it matches up 
 peaks_calculated <- for_peaks %>%
   group_by(Date) %>%
   mutate(
-    blue_med = median(Bluegreens_ugL, na.rm = TRUE),  # Calculate the median, excluding NA values
-    blue_sd = sd(Bluegreens_ugL, na.rm = TRUE),       # Calculate the standard deviation
-    blue_mean = mean(Bluegreens_ugL, na.rm = TRUE),   # Calculate the mean
-    blue_mean_plus_sd = blue_mean + blue_sd,          # Calculate mean + sd
-    peak.top = as.integer(Depth_m <= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),  # Create binary indicator
-    peak.bottom = as.integer(Depth_m >= Bluegreens_DCM_depth & Bluegreens_ugL > blue_mean_plus_sd),
+    total_med = median(TotalConc_ugL, na.rm = TRUE),  # Calculate the median, excluding NA values
+    total_sd = sd(TotalConc_ugL, na.rm = TRUE),       # Calculate the standard deviation
+    total_mean = mean(TotalConc_ugL, na.rm = TRUE),   # Calculate the mean
+    total_mean_plus_sd = total_mean + total_sd,          # Calculate mean + sd
+    peak.top = as.integer(Depth_m <= Totals_DCM_depth & TotalConc_ugL > total_mean_plus_sd),  # Create binary indicator
+    peak.bottom = as.integer(Depth_m >= Totals_DCM_depth & TotalConc_ugL > total_mean_plus_sd),
     
-    # Apply condition: If Bluegreens_DCM_conc < 40, set peak.top and peak.bottom to 0
-    peak.top = if_else(Bluegreens_DCM_conc < 40, 0, peak.top),
-    peak.bottom = if_else(Bluegreens_DCM_conc < 40, 0, peak.bottom),
+    # Apply condition: If Totals_DCM_conc < 40, set peak.top and peak.bottom to 0
+    peak.top = if_else(Totals_DCM_conc < 40, 0, peak.top),
+    peak.bottom = if_else(Totals_DCM_conc < 40, 0, peak.bottom),
     
     # Replace peak.top and peak.bottom with Depth_m if indicator is 1
     peak.top = if_else(peak.top == 1, Depth_m, 0),
@@ -797,9 +785,9 @@ peaks_calculated <- for_peaks %>%
 
 final_data_peaks <- peaks_calculated|>
   group_by(Date)|>
-  mutate(peak.magnitude = max(Bluegreens_ugL)-mean(Bluegreens_ugL))|>
+  mutate(peak.magnitude = max(TotalConc_ugL)-mean(TotalConc_ugL))|>
   ungroup()|>
-  select(Date, Depth_m, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
+  select(Date, Depth_m, total_mean, total_sd, total_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many there are at the DCM for total_conc
 
 library(lubridate)
 conflicts_prefer(dplyr::filter)
@@ -812,7 +800,7 @@ final_data0 <- final_data_water |>
   summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), 
             .groups = 'drop')|>
   mutate(DayOfYear = yday(Date))|>
-  mutate(DCM = if_else(Depth_m == Bluegreens_DCM_depth, TRUE, FALSE))|>
+  mutate(DCM = if_else(Depth_m == Totals_DCM_depth, TRUE, FALSE))|>
   mutate(PAR_PZ = if_else(PAR_PZ<0, NA_real_, PAR_PZ))|>
   mutate(PZ = if_else(!is.na(secchi_PZ), 
                       secchi_PZ, 
@@ -822,6 +810,25 @@ final_data0 <- final_data_water |>
   mutate(Date = as.Date(Date, format = "%Y-%m-%d")) |>
   mutate(DayOfYear = yday(Date)) |>
   filter(DayOfYear > 133, DayOfYear < 286)|>  # Timeframe filtering
+  rename_with(~ gsub("^interp_", "", .), starts_with("interp_"))  # Remove "interp_" prefix
+
+#same thing but including all data to see flora data availability
+final_data_alldates <- final_data_water|>
+  left_join(final_data_peaks, by = c("Date", "Depth_m")) |>
+  mutate(peak.width = if_else(peak.width < 3, peak.width, NA_real_)) |>
+  group_by(Date, CastID, Depth_m) |>
+  summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), 
+            .groups = 'drop')|>
+  mutate(DayOfYear = yday(Date))|>
+  mutate(DCM = if_else(Depth_m == Totals_DCM_depth, TRUE, FALSE))|>
+  mutate(PAR_PZ = if_else(PAR_PZ<0, NA_real_, PAR_PZ))|>
+  mutate(PZ = if_else(!is.na(secchi_PZ), 
+                      secchi_PZ, 
+                      rowMeans(select(cur_data(), PAR_PZ, Zeu), na.rm = TRUE)))|>
+  mutate(PZ = if_else(PZ>10, 9.5, PZ))|>
+  mutate(secchi_PZ = if_else(secchi_PZ>10, 9.5, secchi_PZ))|>
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d")) |>
+  mutate(DayOfYear = yday(Date)) |>
   rename_with(~ gsub("^interp_", "", .), starts_with("interp_"))  # Remove "interp_" prefix
 
 
@@ -846,11 +853,11 @@ final_data0 <- final_data_water |>
 
 ####final dataframe####
 
-#
-#write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
+write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 
 
-
+looking<- final_data0|>
+  filter(TotalConc_ugL>380)
 
 
 ####DCM depth correlations####
@@ -878,8 +885,8 @@ DCM_final <- final_data0 |>
   fill(DCM_buoyancy_freq, .direction = "updown") |>
   summarise(
     DCM_buoyancy_freq = mean(DCM_buoyancy_freq, na.rm = TRUE),
-    Bluegreens_DCM_depth = mean(Bluegreens_DCM_depth, na.rm = TRUE),
-    Bluegreens_DCM_conc = mean(Bluegreens_DCM_conc, na.rm = TRUE),
+    Totals_DCM_depth = mean(Totals_DCM_depth, na.rm = TRUE),
+    Totals_DCM_conc = mean(Totals_DCM_conc, na.rm = TRUE),
     peak.top = mean(peak.top, na.rm = TRUE),
     peak.bottom = mean(peak.bottom, na.rm = TRUE),
     peak.width = mean(peak.width, na.rm = TRUE),
@@ -893,7 +900,7 @@ DCM_final <- final_data0 |>
     WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE),
     .groups = "drop"  # Ungroup to prevent grouping issues in the following steps
   )|>
-  filter(Bluegreens_DCM_conc > 20)
+  filter(Totals_DCM_conc > 20)
 
 # Loop through the depth_variables to calculate the depth at which the maximum value occurs for each date
 for (var in depth_variables) {
@@ -943,7 +950,7 @@ for (var in depth_variables) {
 # Finalize the DCM_final data frame
 DCM_final <- DCM_final |>
   mutate(DayOfYear = yday(Date)) |>
-  select(Date, Bluegreens_DCM_conc, Bluegreens_DCM_depth, meta_width, peak.magnitude,
+  select(Date, Totals_DCM_conc, Totals_DCM_depth, meta_width, peak.magnitude,
          secchi_PZ, PAR_PZ, PZ, Zeu, DCM_buoyancy_freq, thermocline_depth, WaterLevel_m, 
          everything())|>  # Include all max and min depth columns added
   rename_with(~ gsub("max_depth_(.*)", "max_\\1_depth", .), starts_with("max_depth_"))|>
@@ -960,7 +967,7 @@ correlations <- function(year1, year2) {
   DCM_final_cor <- DCM_final |>
     filter(year(Date) >= {{year1}}, year(Date) <= {{year2}}) |>
     filter(month(Date) > 4, month(Date) < 10) |>
-    filter(Bluegreens_DCM_conc > 20)
+    filter(Totals_DCM_conc > 20)
   
   drivers_cor <- cor(DCM_final_cor[,c(2:66)],
                      method = "spearman", use = "pairwise.complete.obs")
@@ -992,7 +999,7 @@ significant_correlations <- final_data_cor_long |> # Filter correlations based o
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
 significant_correlations <- significant_correlations |>
-  filter(Variable1 %in% c("Bluegreens_DCM_depth"))|>
+  filter(Variable1 %in% c("Totals_DCM_depth"))|>
   filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
   mutate(Combined = paste(Variable1, "vs", Variable2))
 
@@ -1010,9 +1017,19 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
         plot.title = element_text(hjust = 0.5))  # Center the title
 
 ####correlations across years,max day each year####
+#these are the days that the max TotalConc_ugL occurs. The biggest bloom. 
+blooms <- final_data0|>
+  group_by(year(Date))|>
+  mutate(bloommax = if_else(TotalConc_ugL == max(TotalConc_ugL), TRUE, NA_real_))|>
+  ungroup()|>
+  filter(bloommax == TRUE)|>
+  group_by(Date)|>
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) |>
+  ungroup()
+
 
 DCM_final_maxdays_cor<- DCM_final|>
-  filter(Date %in% c("2014-08-13", "2015-08-08", "2016-06-16", "2017-07-20", "2018-08-16", "2019-06-06", "2020-09-16", "2021-08-09", "2022-08-01", "2023-07-31"))
+  filter(Date %in% c("2014-09-25", "2015-08-08", "2016-06-16", "2017-07-20", "2018-05-24", "2019-05-16", "2020-08-20", "2021-08-09","2022-09-19", "2023-06-19"))
 
 maxdayscor <- cor(DCM_final_maxdays_cor[,c(2:64)], method = "spearman", use = "pairwise.complete.obs")
 
@@ -1032,7 +1049,7 @@ significant_correlations <- maxdayscor_long |> # Filter correlations based on th
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
 significant_correlations <- significant_correlations |>
-  filter(Variable1 %in% c("Bluegreens_DCM_depth"))|>
+  filter(Variable1 %in% c("Totals_DCM_depth"))|>
   filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
   mutate(Combined = paste(Variable1, "vs", Variable2))
 
@@ -1053,10 +1070,10 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
 
 ####daily correlation, for choosing specific day####
 
-#these are the days that the max Bluegreens_ugL occurs. The biggest bloom. 
+#these are the days that the max TotalConc_ugL occurs. The biggest bloom. 
 blooms <- final_data0|>
   group_by(year(Date))|>
-  mutate(bloommax = if_else(Bluegreens_ugL == max(Bluegreens_ugL), TRUE, NA_real_))|>
+  mutate(bloommax = if_else(TotalConc_ugL == max(TotalConc_ugL), TRUE, NA_real_))|>
   ungroup()|>
   filter(bloommax == TRUE)|>
   group_by(Date)|>
@@ -1068,7 +1085,7 @@ blooms <- final_data0|>
 #change date to see correlations for the singular day that max was the biggest
 daily_cor <- final_data0|>
   filter(Date %in% c("2019-06-06"))|>
-  select("Depth_m", "Bluegreens_ugL", "TotalConc_ugL", "SFe_mgL", "TFe_mgL", "SMn_mgL", "SCa_mgL",
+  select("Depth_m", "TotalConc_ugL", "TotalConc_ugL", "SFe_mgL", "TFe_mgL", "SMn_mgL", "SCa_mgL",
          "TCa_mgL", "TCu_mgL", "SBa_mgL", "TBa_mgL",
          "CO2_umolL", "CH4_umolL", "DO_mgL",
          "DOsat_percent", "Cond_uScm", "ORP_mV", "pH", "np_ratio", "TN_ugL", "TP_ugL", 
@@ -1094,7 +1111,7 @@ significant_correlations_sorted <- significant_correlations[order(significant_co
 significant_correlations$Combined <- paste(significant_correlations$Variable1, significant_correlations$Variable2, sep = " - ")
 
 significant_correlations <- significant_correlations |>
-  filter(Variable1 %in% c("TotalConc_ugL", "Bluegreens_ugL"))|>
+  filter(Variable1 %in% c("TotalConc_ugL", "TotalConc_ugL"))|>
   filter(!Variable2 %in% c("Depth_m"))|>
   mutate(Combined = paste(Variable1, "vs", Variable2))
 
@@ -1117,30 +1134,30 @@ looking<- final_data0|>
 
 
 
-####timeframe determination based on flora data availability####
+####flora data availability####
 
 #days on the x axis, years on the y axis
-plot_dat <- final_data0 %>%
-  filter(!is.na(Bluegreens_ugL)) %>%
+plot_dat <- final_data_alldates %>%
+  filter(!is.na(TotalConc_ugL)) %>%
   mutate(Year = year(Date), 
          DayOfYear = yday(Date))|> # Extract year and day of the year
-  select(Date, Year, DayOfYear, Bluegreens_ugL, Depth_m, peak.width, peak.magnitude)
+  select(Date, Year, DayOfYear, TotalConc_ugL, Depth_m, peak.width, peak.magnitude)
 
-# Find the maximum Bluegreens_ugL value for each year
-max_bluegreen_per_year <- plot_dat %>%
+# Find the maximum TotalConc_ugL value for each year
+max_total_per_year <- plot_dat %>%
   group_by(year(Date)) %>%
-  slice(which.max(Bluegreens_ugL)) %>%
+  slice(which.max(TotalConc_ugL)) %>%
   ungroup()
 
 # Plot: x-axis is DayOfYear, y-axis is Year, with a line and highlighted points
 ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   geom_line() +  # Line for each year
   geom_point() +  # Data points
-  geom_point(data = max_bluegreen_per_year, aes(x = DayOfYear, y = as.factor(Year)), 
+  geom_point(data = max_total_per_year, aes(x = DayOfYear, y = as.factor(Year)), 
              color = "red", size = 3) +  # Highlight max points in red
-  geom_text(data = max_bluegreen_per_year, 
+  geom_text(data = max_total_per_year, 
             aes(x = DayOfYear, y = as.factor(Year), 
-                label = paste0("Max: ", round(Bluegreens_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
+                label = paste0("Max: ", round(TotalConc_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
             vjust = 1.5, hjust = 0.5, color = "black", size = 3) +  # Smaller text and place below the point
   theme_bw() +
   labs(x = "Day of Year", y = "Year", title = "Fluoroprobe Data Availability") +
@@ -1148,23 +1165,23 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
 
 ####DCM depth every year####
-# Find the maximum Bluegreens_ugL value for each day
-max_bluegreen_per_day <- plot_dat %>%
+# Find the maximum TotalConc_ugL value for each day
+max_total_per_day <- plot_dat %>%
   group_by(Date) %>%
-  slice(which.max(Bluegreens_ugL)) %>%
-  filter(DayOfYear > 133, DayOfYear < 285, Bluegreens_ugL >20)|>
+  slice(which.max(TotalConc_ugL)) %>%
+  filter(DayOfYear > 133, DayOfYear < 285, TotalConc_ugL >20)|>
   ungroup()
 
-ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = Depth_m, group = Year)) +
+ggplot(max_total_per_day, aes(x = DayOfYear, y = Depth_m, group = Year)) +
   geom_line() +
-  geom_point(data = max_bluegreen_per_year, aes(x = DayOfYear, y = Depth_m), 
+  geom_point(data = max_total_per_year, aes(x = DayOfYear, y = Depth_m), 
              color = "red", size = 3) +  # Highlight max points in red
-  geom_text(data = max_bluegreen_per_year, 
+  geom_text(data = max_total_per_year, 
             aes(x = DayOfYear, y = Depth_m, 
-                label = paste0("Max: ", round(Bluegreens_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
+                label = paste0("Max: ", round(TotalConc_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
             vjust = -.5, hjust = 0.5, color = "black", size = 3) +  # Adjust text position
   theme_bw() +
-  labs(x = "Day of Year", y = "Depth (m)", title = "DCM Depths Across Years (Only Showing Data with Bluegreens > 20)") +
+  labs(x = "Day of Year", y = "Depth (m)", title = "DCM Depths Across Years (Only Showing Data with Totals > 20)") +
   scale_y_reverse(limits = c(10, 0)) +  # Invert y-axis from 0 to 10
   scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
   facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
@@ -1172,20 +1189,20 @@ ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = Depth_m, group = Year)) +
 
 ####peak width every year####
 
-ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = peak.width, group = Year)) +
+ggplot(max_total_per_day, aes(x = DayOfYear, y = peak.width, group = Year)) +
   geom_line() +
   theme_bw() +
-  labs(x = "Day of Year", y = "Peak Width (m)", title = "DCM Widths Across Years (Only Showing Data with Bluegreens > 20)") +
+  labs(x = "Day of Year", y = "Peak Width (m)", title = "DCM Widths Across Years (Only Showing Data with Totals > 20)") +
   scale_y_continuous(limits = c(0, 4)) +  
   scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
   facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
   theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
 
 ####peak magnitude####
-ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = peak.magnitude, group = Year)) +
+ggplot(max_total_per_day, aes(x = DayOfYear, y = peak.magnitude, group = Year)) +
   geom_line() +
   theme_bw() +
-  labs(x = "Day of Year", y = "Peak Magnitude (m)", title = "Peak Magnitude Across Years (Only Showing Data with Bluegreens > 20)") +
+  labs(x = "Day of Year", y = "Peak Magnitude (m)", title = "Peak Magnitude Across Years (Only Showing Data with Totals > 20)") +
   scale_y_continuous(limits = c(0, 150)) +  
   scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
   facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
@@ -1197,29 +1214,29 @@ ggplot(max_bluegreen_per_day, aes(x = DayOfYear, y = peak.magnitude, group = Yea
 
 #for june, july, august
 boxplot_Data <- DCM_final |>
-  filter(Bluegreens_DCM_conc > 20) |>
+  filter(Totals_DCM_conc > 20) |>
   filter(month(Date)>5, month(Date)<9) |>
   mutate(Year = year(Date), Month = month(Date))
 
 # Calculate max_legend_value for the color scale limits
-max_legend_value <- max(boxplot_Data$Bluegreens_DCM_conc, na.rm = TRUE)
+max_legend_value <- max(boxplot_Data$Totals_DCM_conc, na.rm = TRUE)
 
-# Create the multi-panel boxplot with an overlay of colored points for Bluegreens_DCM_conc
+# Create the multi-panel boxplot with an overlay of colored points for Totals_DCM_conc
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
-                         y = Bluegreens_DCM_depth)) +
+                         y = Totals_DCM_depth)) +
   geom_boxplot() +
-  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
   facet_wrap(~ Year) +  # Create a panel for each year
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
   scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
   ylim(10, 0) +  # Set the y-axis limits, reversing the range
-  labs(x = "Month", y = "DCM Depth", color = "Bluegreens ugL") +  # Label the legend
+  labs(x = "Month", y = "DCM Depth", color = "TotalConc ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #visualizing just one box per year
 
 boxplot_Data <- DCM_final |>
-  filter(Bluegreens_DCM_conc > 20) |>
+  filter(Totals_DCM_conc > 20) |>
   mutate(DayOfYear = yday(Date))|>
   filter(DayOfYear>133, DayOfYear<286) |>
   mutate(Year = year(Date), Month = month(Date))
@@ -1229,14 +1246,14 @@ label_data <- boxplot_Data %>%
   summarise(n = n())  # Calculate the number of data points per year
 
 # Plot with labels for the number of data points
-ggplot(boxplot_Data, aes(x = factor(Year), y = Bluegreens_DCM_depth)) +
+ggplot(boxplot_Data, aes(x = factor(Year), y = Totals_DCM_depth)) +
   geom_boxplot() +
-  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
   scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
-  ggtitle(label = "DCM Depths only displaying Bluegreens > 20") +
+  ggtitle(label = "DCM Depths only displaying Totals > 20") +
   ylim(10, 0) +  # Set the y-axis limits, reversing the range
-  labs(x = "Year", y = "DCM Depth", color = "Bluegreens ugL") +  # Label the legend
+  labs(x = "Year", y = "DCM Depth", color = "TotalConc ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   geom_text(data = label_data, aes(x = factor(Year), y = 0.5, label = paste0("n = ", n)), 
             vjust = -0.5)  # Add labels at the top of each column
@@ -1244,24 +1261,24 @@ ggplot(boxplot_Data, aes(x = factor(Year), y = Bluegreens_DCM_depth)) +
 ####boxplot width of DCM####
 
 boxplot_Data <- DCM_final |>
-  filter(Bluegreens_DCM_conc > 20) |>
+  filter(Totals_DCM_conc > 20) |>
   filter(month(Date)>5, month(Date)<9) |>
   mutate(Year = year(Date), Month = month(Date))|>
   filter(peak.width<2.5)
 
-# Create the multi-panel boxplot with an overlay of colored points for Bluegreens_DCM_conc
+# Create the multi-panel boxplot with an overlay of colored points for Totals_DCM_conc
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
                          y = peak.width)) +
   geom_boxplot() +
-  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
   facet_wrap(~ Year) +  # Create a panel for each year
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  labs(x = "Month", y = "Peak Width", color = "Bluegreens ugL") +  # Label the legend
+  labs(x = "Month", y = "Peak Width", color = "Total ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #one box per year
 boxplot_Data <- DCM_final |>
-  filter(Bluegreens_DCM_conc > 20) |>
+  filter(Totals_DCM_conc > 20) |>
   mutate(DayOfYear = yday(Date))|>
   filter(DayOfYear>133, DayOfYear<286) |>
   mutate(Year = year(Date), Month = month(Date))|>
@@ -1273,11 +1290,11 @@ label_data <- boxplot_Data %>%
 
 ggplot(boxplot_Data, aes(x = factor(Year), y = peak.width)) +
   geom_boxplot() +
-  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  ggtitle(label = "Peak Width only displaying Bluegreens > 20") +
+  ggtitle(label = "Peak Width only displaying TotalConc > 20") +
   ylim(0, 5) +  # Set the y-axis limits
-  labs(x = "Year", y = "Peak Width", color = "Bluegreens ugL") +  # Label the legend
+  labs(x = "Year", y = "Peak Width", color = "TotalConc ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   geom_text(data = label_data, aes(x = factor(Year), y = 4.5, label = paste0("n = ", n)), 
             vjust = -0.5)  # Adjust y position for labels at the top
@@ -1288,46 +1305,46 @@ ggplot(boxplot_Data, aes(x = factor(Year), y = peak.width)) +
 #for June-August
 
 boxplot_Data <- DCM_final |>
-    filter(Bluegreens_DCM_conc > 20) |>
+    filter(Totals_DCM_conc > 20) |>
   filter(month(Date)>5, month(Date)<9) |>
   mutate(Year = year(Date), Month = month(Date))
 
 ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
                          y = peak.magnitude)) +
   geom_boxplot() +
-  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
   facet_wrap(~ Year) +  # Create a panel for each year
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  labs(x = "Month", y = "Peak Magnitude", color = "Bluegreens ugL") +  # Label the legend
+  labs(x = "Month", y = "Peak Magnitude", color = "TotalConc ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #visualizing just one box per year
 
 boxplot_Data <- DCM_final |>
-  filter(Bluegreens_DCM_conc > 20) |>
+  filter(Totals_DCM_conc > 20) |>
   mutate(DayOfYear = yday(Date))|>
   filter(DayOfYear>133, DayOfYear<286) |>
   mutate(Year = year(Date), Month = month(Date))
 
 ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
   geom_boxplot() +
-  geom_point(aes(color = Bluegreens_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  ggtitle(label = "Peak Magnitudes only displaying Bluegreens > 20")+
+  ggtitle(label = "Peak Magnitudes only displaying TotalConc > 20")+
   ylim(0, 150) +  # Set the y-axis limits, reversing the range
-  labs(x = "Year", y = "Peak Magnitude", color = "Bluegreens ugL") +  # Label the legend
+  labs(x = "Year", y = "Peak Magnitude", color = "TotalConc ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
 #### plot TC, DCM, and PAR####
-ggplot(DCM_final, aes(x = thermocline_depth, y = Bluegreens_DCM_depth, color = PZ))+
+ggplot(DCM_final, aes(x = thermocline_depth, y = Totals_DCM_depth, color = PZ))+
   geom_point()
 
 looking<- DCM_final%>%
   filter(thermocline_depth <3)|>
-  select(Bluegreens_DCM_depth, thermocline_depth, Date, WaterLevel_m)
+  select(Totals_DCM_depth, thermocline_depth, Date, WaterLevel_m)
 
-#"2016-05-19" "2016-08-04" dates with Bluegreen_DCM_depth >9.5
+#"2016-05-19" "2016-08-04" dates with Totals_DCM_depth >9.5
 
 ####RandomForest Anually####
 
@@ -1413,7 +1430,7 @@ yearDCM_final <- DCM_final |>
   #  select(-WaterLevel_m)
   
   # Add the excluded non-numeric columns (e.g., Date) back to the imputed dataset
-  model_rf <- randomForest(Bluegreens_DCM_depth ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
+  model_rf <- randomForest(Totals_DCM_depth ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
   
   importance(model_rf)
   
@@ -1446,7 +1463,7 @@ yearDCM_final <- DCM_final |>
   
 
 
-####RF bluegreens magnitude####
+####RF TotalConc magnitude####
 #####make dataframe#####
   
   # Create a vector of variable names that need to be summarized
@@ -1461,7 +1478,7 @@ yearDCM_final <- DCM_final |>
   
   DCM_depths <- list()
   
-  # Process to obtain the concentrations at Bluegreens_DCM_depth for each variable
+  # Process to obtain the concentrations at Totals_DCM_depth for each variable
   DCM_final_conc <- final_data0 |>
     mutate(Date = as.Date(Date)) |>
     filter(month(Date) >= 4, month(Date) < 10) |>
@@ -1470,8 +1487,8 @@ yearDCM_final <- DCM_final |>
     fill(DCM_buoyancy_freq, .direction = "updown") |>
     summarise(
       DCM_buoyancy_freq = mean(DCM_buoyancy_freq, na.rm = TRUE),
-      Bluegreens_DCM_depth = mean(Bluegreens_DCM_depth, na.rm = TRUE),
-      Bluegreens_DCM_conc = mean(Bluegreens_DCM_conc, na.rm = TRUE),
+      Totals_DCM_depth = mean(Totals_DCM_depth, na.rm = TRUE),
+      Totals_DCM_conc = mean(Totals_DCM_conc, na.rm = TRUE),
       peak.top = mean(peak.top, na.rm = TRUE),
       peak.bottom = mean(peak.bottom, na.rm = TRUE),
       peak.width = mean(peak.width, na.rm = TRUE),
@@ -1484,9 +1501,9 @@ yearDCM_final <- DCM_final |>
       WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE),
       .groups = "drop"  # Ungroup to prevent grouping issues in following steps
     ) |>
-    filter(Bluegreens_DCM_conc > 20)
+    filter(Totals_DCM_conc > 20)
   
-  # Loop through depth_variables to join the concentration at Bluegreens_DCM_depth
+  # Loop through depth_variables to join the concentration at Totals_DCM_depth
   for (var in depth_variables) {
     DCM_final_conc <- DCM_final_conc |>
       left_join(
@@ -1495,7 +1512,7 @@ yearDCM_final <- DCM_final |>
           select(Date, Depth_m, !!sym(var)) |>
           rename(Concentration = !!sym(var)) |>
           group_by(Date) |>
-          filter(Depth_m == DCM_final_conc$Bluegreens_DCM_depth[match(Date, DCM_final_conc$Date)]) |>
+          filter(Depth_m == DCM_final_conc$Totals_DCM_depth[match(Date, DCM_final_conc$Date)]) |>
           summarise(!!paste0(var, "_at_DCM") := mean(Concentration, na.rm = TRUE)),
         by = "Date"
       )
@@ -1582,7 +1599,7 @@ yearDCM_final <- DCM_final |>
   #  select(-WaterLevel_m)
   
   # Add the excluded non-numeric columns (e.g., Date) back to the imputed dataset
-  model_rf <- randomForest(Bluegreens_DCM_conc ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
+  model_rf <- randomForest(Totals_DCM_conc ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
   
   importance(model_rf)
   
