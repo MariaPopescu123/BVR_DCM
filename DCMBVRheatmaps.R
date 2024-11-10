@@ -2,36 +2,37 @@
 #Maria Popescu
 #alot of help writing the function from Mary
 
-#CODE NOT WORKING BECAUSE SITE. NEED TO REMOVE SITE
-#check to make sure 
+
+pacman::p_load(tidyverse, lubridate, akima, reshape2, 
+               gridExtra, grid, colorRamps, RColorBrewer, rLakeAnalyzer,
+               reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes)
 
 final_data0 <- read.csv("./final_data0.csv")
 
 final_data0<- final_data0|>
-  mutate(Reservoir = "BVR")|>
-  mutate(DateTime = Date)
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"))  # Adjust format if necessary
 
 
 #need to change these values to reflect Bluegreens not just chla (which it currently is)
 # Chlorophyll data for the line visualizing chl max on heatmaps
 
 chlorophyll_data <- final_data0 %>%
-  select(Date, Depth_m, Bluegreens_ugL)|>
+  select(Date, Depth_m, TotalConc_ugL)|>
   mutate(DayOfYear = yday(Date))|>
   group_by(Date) %>%
-  slice(which.max(Bluegreens_ugL)) %>%
+  slice(which.max(TotalConc_ugL)) %>%
   ungroup()|>
   mutate(Reservoir = "BVR")|>
-  mutate(DateTime = Date)|> #no actual time
-  filter(DayOfYear > 133, DayOfYear < 285, Bluegreens_ugL >20)|>
-  filter(!(month(Date) == 8 & year(Date) == 2017 & Bluegreens_ugL < 35)) #weird drop here
+  mutate(Date = Date)|> #no actual time
+  filter(DayOfYear > 133, DayOfYear < 285, TotalConc_ugL >20)|>
+  filter(!(month(Date) == 8 & year(Date) == 2017 & TotalConc_ugL < 35)) #weird drop here
 
 
 ####heatmaps####
 # Preparing separate data frame so I can add a line where the thermocline is (removed line from graph but can add it back in)
 thermocline_df <- final_data0|>
   mutate(Reservoir = "BVR")|>
-  mutate(DateTime = Date)|> #this doesn't actually have the time but I need it for the rest of the script
+  mutate(Date = Date)|> #this doesn't actually have the time but I need it for the rest of the script
   select(Reservoir, Date, thermocline_depth, Temp_C, Depth_m, Site)
 
 Photic_zone<- final_data0|>
@@ -40,37 +41,18 @@ Photic_zone<- final_data0|>
   mutate(PAR_PZ = mean(PAR_PZ))|>
   mutate(DOY = yday(Date))
   
-
 #might be interesting to add lines for other phytos and see how they compare
 
-flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_data = NA, max_legend_value = NA, thermocline_df = NA, Photic_zone = NA)
+flora_heatmap <- function(fp_data, year, site, z, unitz, chlorophyll_data = NA, max_legend_value = NA, thermocline_df = NA, Photic_zone = NA)
 {
-  
+
   #subset to relevant data
   fp <- fp_data %>%
-    filter(Reservoir == reservoir & year(DateTime) == year) %>%
-    select(CastID, DateTime, Depth_m, {{z}}) 
+    mutate(Date = as.Date(Date,format = "%Y-%m-%d"))|>
+    filter(lubridate::year(Date) ==year) %>%
+    select(CastID, Date, Depth_m, {{z}}) 
   
-  #slice by depth for each reservoir
-  if (reservoir == "FCR"){
-    
-    depths = seq(0.1, 9.3, by = 0.3)
-    df.final<-data.frame()
-    
-    for (i in 1:length(depths)){
-      
-      fp_layer <- fp %>% 
-        group_by(CastID) %>% 
-        slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-      
-      # Bind each of the data layers together.
-      df.final = bind_rows(df.final, fp_layer)
-      
-    }
-    
-    
-  } else if (reservoir == "BVR"){
-    
+ 
     depths = seq(0.1, 10, by = 0.3)
     df.final<-data.frame()
     
@@ -80,60 +62,19 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
       
       # Bind each of the data layers together.
       df.final = bind_rows(df.final, fp_layer)
-      
-    }
     
-  } else if(reservoir == "CCR"){
-    
-    depths = seq(0.1, 20, by = 0.3)
-    df.final<-data.frame()
-    
-    for (i in 1:length(depths)){
-      
-      fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-      
-      # Bind each of the data layers together.
-      df.final = bind_rows(df.final, fp_layer)
-      
-    }
-  } else if(reservoir == "GWR"){
-    
-    depths = seq(0.1, 12, by = 0.3)
-    df.final<-data.frame()
-    
-    for (i in 1:length(depths)){
-      
-      fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-      
-      # Bind each of the data layers together.
-      df.final = bind_rows(df.final, fp_layer)
-      
-    }
-  } else if(reservoir == "SHR"){
-    
-    depths = seq(0.1, 30, by = 0.3)
-    df.final<-data.frame()
-    
-    for (i in 1:length(depths)){
-      
-      fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-      
-      # Bind each of the data layers together.
-      df.final = bind_rows(df.final, fp_layer)
-      
-    } 
     
   }
   
   #wrangle final dataframe for plotting
   # Re-arrange the data frame by date
-  fp_new <- arrange(df.final, DateTime)
+  fp_new <- arrange(df.final, Date)
   
   # Round each extracted depth to the nearest 10th. 
   fp_new$Depth_m <- round(as.numeric(fp_new$Depth_m), digits = 0.5)
   
   # Convert to DOY
-  fp_new$DOY <- yday(fp_new$DateTime)
+  fp_new$DOY <- yday(fp_new$Date)
   
   #trying to address error in missing values and Infs here!!!!!
   fp_new <- fp_new|>
@@ -141,7 +82,7 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
              !is.infinite(DOY) & !is.infinite(Depth_m) & !is.infinite(fp_new[[z]]))
   
   
-  fig_title <- paste(reservoir, year, "Site", site, z, sep = " ")
+  fig_title <- paste("BVR", year, "Site", site, z, sep = " ")
   
   interp <- interp(x=fp_new$DOY, y = fp_new$Depth_m, z = unlist(fp_new[z]),
                    xo = seq(min(fp_new$DOY), max(fp_new$DOY), by = .1), 
@@ -151,24 +92,19 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
   
   # Prepare chlorophyll maxima data for line
   chlorophyll_data <- chlorophyll_data %>%
-    filter(Reservoir == reservoir & year(DateTime) == year & site == site) %>%
-    mutate(DOY = yday(DateTime))|>
+    filter(year(Date) == year & site == site) %>%
+    mutate(DOY = yday(Date))|>
     filter(DOY <= max(fp_new$DOY) & DOY >= min(fp_new$DOY))
   
-  Photic_zone <- Photic_zone %>%
-    filter(year(Date) == year) %>%
-    mutate(DOY = yday(Date))
-
   p1 <- ggplot(interp, aes(x=x, y=y))+
     geom_raster(aes(fill=z))+
     scale_y_reverse(expand = c(0,0))+
     scale_x_continuous(expand = c(0, 0), breaks = seq(1, 366, by = 30), 
                        labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
     scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +
-    geom_path(data = chlorophyll_data, aes(x = DOY, y = Depth_m, color = Bluegreens_ugL), size = 1.2) + # Color line by Bluegreens_ugL
-    geom_path(data = Photic_zone, aes(x = DOY, y = PAR_PZ), size = 1.2)+
+    geom_path(data = chlorophyll_data, aes(x = DOY, y = Depth_m, color = TotalConc_ugL), size = 1.2) + # Color line by TotalConc_ugL
     scale_color_gradient(low = "blue", high = "red") + # Adjust color scale as needed
-    labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
+    labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "TotalConc (µg/L)")+
     theme_bw()+
     theme(
       legend.text = element_text(size = 8), # Adjust text size in legend
@@ -183,16 +119,16 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 #### flora ####
 {
   
-  b1 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2014, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2015, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data, Photic_zone = Photic_zone)
-  b3 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2016, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data, Photic_zone = Photic_zone)
-  b4 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2017, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2018, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b6 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2019, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2020, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2021, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2023, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = final_data0, year = 2014, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+#  b2 <- flora_heatmap(fp_data = final_data0,  year = 2015, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+#  b3 <- flora_heatmap(fp_data = final_data0,  year = 2016, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = final_data0,  year = 2017, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+#  b5 <- flora_heatmap(fp_data = final_data0,  year = 2018, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b6 <- flora_heatmap(fp_data = final_data0,  year = 2019, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = final_data0,  year = 2020, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = final_data0,  year = 2021, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = final_data0,  year = 2022, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = final_data0,  year = 2023, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   
   bluegreens <- plot_grid(
     b1, b2, b3,
@@ -203,12 +139,12 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
   
   print(bluegreens)
   
-  p1 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "TotalConc_ugL")
-  p2 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "BrownAlgae_ugL")
-  p3 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "GreenAlgae_ugL")
-  p4 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "Bluegreens_ugL")
-  p5 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "MixedAlgae_ugL")
-  p6 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "YellowSubstances_ugL")
+  p1 <- flora_heatmap(fp_data = final_data0,  year = 2022, site = 50, z = "TotalConc_ugL")
+  p2 <- flora_heatmap(fp_data = final_data0,  year = 2022, site = 50, z = "BrownAlgae_ugL")
+  p3 <- flora_heatmap(fp_data = final_data0,  year = 2022, site = 50, z = "GreenAlgae_ugL")
+  p4 <- flora_heatmap(fp_data = final_data0,  year = 2022, site = 50, z = "TotalConc_ugL")
+  p5 <- flora_heatmap(fp_data = final_data0,  year = 2022, site = 50, z = "MixedAlgae_ugL")
+  p6 <- flora_heatmap(fp_data = final_data0,  year = 2022, site = 50, z = "YellowSubstances_ugL")
   
   final_plot <- plot_grid(
     p1, p2, p3,
@@ -225,16 +161,16 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
     filter(!is.na(interp_SFe_mgL))  # Remove rows with NA in interp_SFe_mgL
   
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_SFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
   
   soluble_iron <- plot_grid(
     b1, b2, b3,
@@ -253,16 +189,16 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
     filter(!is.na(interp_TFe_mgL))  # Remove rows with NA in interp_SFe_mgL
   
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_TFe_mgL", unitz = "mgL", chlorophyll_data, max_legend_value = 35)
   
   total_iron <- plot_grid(
     b1, b2, b3,
@@ -280,16 +216,16 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
     filter(!is.na(interp_SMn_mgL))  # Remove rows with NA in interp_SMn_mgL
   
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_SMn_mgL", unitz = "mgL", chlorophyll_data)
   
   SMn_mgL_plot <- plot_grid(
     b1, b2, b3,
@@ -308,16 +244,16 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
     filter(!is.na(interp_SCa_mgL))  # Remove rows with NA in interp_SMn_mgL
   
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_SCa_mgL", unitz = "mgL", chlorophyll_data)
   
   interp_SCa_mgL <- plot_grid(
     b1, b2, b3,
@@ -337,15 +273,15 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_CO2_umolL))  # Remove rows with NA in interp_SFe_mgL
   
-  #b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  #b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_CO2_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
   
   CO2_plots <- plot_grid(
     b3, b4, b5,
@@ -363,15 +299,15 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_CH4_umolL))  # Remove rows with NA in interp_SFe_mgL
   
-  #not sure why not working b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
+  #not sure why not working b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data, max_legend_value = 700)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_CH4_umolL", unitz = "µmol/L", chlorophyll_data)
   
   methane_plots <- plot_grid(
     b3, b4, b5,
@@ -390,16 +326,16 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
     filter(month(Date) < 11)
   
   
-  #only one day b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
+  #only one day b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_PAR_umolm2s", unitz = "µmol/m2s", chlorophyll_data, max_legend_value = 50)
   
   interp_PAR_plots <- plot_grid(
     b2, b3, b4,
@@ -417,18 +353,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_DO_mgL))|>  # Remove rows with NA in interp_DOC_mgL
-    filter(month(DateTime) < 11)
+    filter(month(Date) < 11)
   
-  #b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  #b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_DO_mgL", unitz = "mg/L", chlorophyll_data)
   
   interp_DO_plots <- plot_grid(
     b2, b3, b4,
@@ -445,18 +381,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_Cond_uScm))|>  # Remove rows with NA in interp_Cond_uScm
-    filter(month(DateTime) < 11)
+    filter(month(Date) < 11)
   
-  #no data b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
-  #colinear  #b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  #no data b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  #colinear  #b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_Cond_uScm", unitz = "uScm", chlorophyll_data)
   
   interp_Cond_uScm <- plot_grid(
     b2, b3, b5,
@@ -473,20 +409,20 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_ORP_mV))|> 
-    filter(month(DateTime) < 11) 
+    filter(month(Date) < 11) 
   
   looking <- dataforheatmap|>
-    filter(year(DateTime) == 2021)|>
-    select(DateTime, Depth_m, interp_ORP_mV)
+    filter(year(Date) == 2021)|>
+    select(Date, Depth_m, interp_ORP_mV)
   
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
-  #there just is no data b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
+  #there just is no data b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_ORP_mV", unitz = "mV", chlorophyll_data, max_legend_value = 400)
   
   ORP <- plot_grid(
     b3, b4, b5,
@@ -502,18 +438,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(Temp_C))|>  # Remove rows with NA in Temp_C
-    filter(month(DateTime) < 11)
+    filter(month(Date) < 11)
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "Temp_C", unitz = "C", chlorophyll_data)
   
   temp_plots <- plot_grid(
     b1, b2, b3,
@@ -529,22 +465,22 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_pH))|>  # Remove rows with NA in interp_SFe_mgL
-    filter(month(DateTime) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
+    filter(month(Date) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
   
   looking <- dataforheatmap|>
     filter(year(Date) == 2017, !is.na(interp_pH))|>
     select(Date, Depth_m, interp_pH)
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_pH", unitz = "pH", chlorophyll_data, max_legend_value = 8)
   
   pH <- plot_grid(
     b1, b2, b3, 
@@ -560,18 +496,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(np_ratio))|>  # Remove rows with NA in interp_SFe_mgL
-    filter(month(DateTime) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
+    filter(month(Date) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data, max_legend_value = 200)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data, max_legend_value = 200)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "np_ratio", unitz = "NP ratio", chlorophyll_data)
   
   np_ratio_plots <- plot_grid(
     b1, b2, b3, 
@@ -587,18 +523,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_TN_ugL))|>  # Remove rows with NA in interp_SFe_mgL
-    filter(month(DateTime) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
+    filter(month(Date) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_TN_ugL", unitz = "µg/L", chlorophyll_data)
   
   interp_TN_plots <- plot_grid(
     b1, b2, b3,
@@ -614,18 +550,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_NH4_ugL))|>  # Remove rows with NA in interp_SFe_mgL
-    filter(month(DateTime) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
+    filter(month(Date) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_NH4_ugL", unitz = "µg/L", chlorophyll_data)
   
   interp_NH4_plots <- plot_grid(
     b1, b2, b3,
@@ -641,18 +577,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_NO3NO2_ugL))|>  # Remove rows with NA in interp_SFe_mgL
-    filter(month(DateTime) < 11 & month(DateTime) > 4) 
+    filter(month(Date) < 11 & month(Date) > 4) 
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_NO3NO2_ugL", unitz = "µg/L", chlorophyll_data, max_legend_value = 15)
   
   interp_NO3NO2_plots <- plot_grid(
     b1, b2, b3,
@@ -668,18 +604,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_SRP_ugL))|>  # Remove rows with NA in interp_SFe_mgL
-    filter(month(DateTime) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
+    filter(month(Date) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_SRP_ugL", unitz = "µg/L", chlorophyll_data)
   
   interp_SRP_plots <- plot_grid(
     b1, b2, b3,
@@ -695,18 +631,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_TP_ugL))|>  # Remove rows with NA in interp_SFe_mgL
-    filter(month(DateTime) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
+    filter(month(Date) < 11) #doing before November because an NP ratio greater than 6000 is crazy, so I am excluding it
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_TP_ugL", unitz = "µg/L", chlorophyll_data)
   
   interp_TP_plots <- plot_grid(
     b1, b2, b3,
@@ -722,18 +658,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_DOC_mgL))|>  # Remove rows with NA in interp_DOC_mgL
-    filter(month(DateTime) < 11)
+    filter(month(Date) < 11)
   
-  b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_DOC_mgL", unitz = "mg/L", chlorophyll_data)
   
   interp_DOC_plots <- plot_grid(
     b1, b2, b3,
@@ -750,18 +686,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_DIC_mgL))|>  # Remove rows with NA in interp_DOC_mgL
-    filter(month(DateTime) < 11)
+    filter(month(Date) < 11)
   
-  #b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
-  #b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
-  #b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
-  #b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  #b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  #b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  #b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  #b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_DIC_mgL", unitz = "mg/L", chlorophyll_data)
   
   interp_DIC_plots <-  plot_grid(
     b5, b6, b7, 
@@ -778,18 +714,18 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 {
   dataforheatmap <- final_data0 |>
     filter(!is.na(interp_DC_mgL))|>  # Remove rows with NA in interp_DOC_mgL
-    filter(month(DateTime) < 11)
+    filter(month(Date) < 11)
   
-  #b1 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2014, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
-  #b2 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2015, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
-  #b3 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2016, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
-  #b4 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2017, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2018, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)  
-  b6 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2019, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2020, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2021, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2022, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = dataforheatmap, reservoir = "BVR", year = 2023, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  #b1 <- flora_heatmap(fp_data = dataforheatmap,  year = 2014, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  #b2 <- flora_heatmap(fp_data = dataforheatmap,  year = 2015, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  #b3 <- flora_heatmap(fp_data = dataforheatmap,  year = 2016, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  #b4 <- flora_heatmap(fp_data = dataforheatmap,  year = 2017, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = dataforheatmap,  year = 2018, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)  
+  b6 <- flora_heatmap(fp_data = dataforheatmap,  year = 2019, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  b7 <- flora_heatmap(fp_data = dataforheatmap,  year = 2020, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  b8 <- flora_heatmap(fp_data = dataforheatmap,  year = 2021, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  b9 <- flora_heatmap(fp_data = dataforheatmap,  year = 2022, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
+  b10 <- flora_heatmap(fp_data = dataforheatmap,  year = 2023, site = 50, z = "interp_DC_mgL", unitz = "mg/L", chlorophyll_data)
   
   interp_DC_plots <- plot_grid(
     b5, b6, b7, 
@@ -808,6 +744,6 @@ flora_heatmap <- function(fp_data, reservoir, year, site, z, unitz, chlorophyll_
 
 #drop in 2017 a couple of days into July from above 5.0 ft down to the bottom
 seventeendrop <- current_df|>
-  filter(year(DateTime) == 2017 & Reservoir == "BVR" & month(DateTime)== 8 & day(DateTime) == 10)
+  filter(year(Date) == 2017 & Reservoir == "BVR" & month(Date)== 8 & day(Date) == 10)
 #2017-08-10 it's only 30ish ug throughout at 9.90. i think i should remove this
 #it is flagged 3 throughout for RFU 590nm (will look into this)
