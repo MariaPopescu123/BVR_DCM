@@ -14,8 +14,6 @@ dat <- read.csv("./current_df.csv")
 
 length(unique(dat$CastID)) 
 
-2022-08-18
-
 casts <- dat %>%
   mutate(Date = date(DateTime)) %>%
   select(Reservoir, Date, Site) %>%
@@ -27,7 +25,7 @@ casts <- dat %>%
 #change dates here
 sample_dat <- casts %>%
   filter(Reservoir == "BVR" & Site == 50 & Date %in%
-  c("2022-08-18" ))|>
+           c("2022-08-18"))|>
   mutate(SampleDepth = c(3.6), 
          Date = factor(Date, levels = c("2022-08-18")),
          Date = as.Date(as.character(Date)))  # Convert factor back to Date
@@ -68,7 +66,7 @@ group_biomass <- plot_dat %>%
 
 group_biomass_plot <- ggplot(data = group_biomass, aes(x = var, y = ugL, color = var, fill = var))+
   geom_bar(stat = "identity")+
-  facet_wrap(facets = vars(FacetID), nrow = 1)+
+  #facet_wrap(facets = vars(FacetID), nrow = 1)+
   theme_bw()+
   scale_color_manual(name = "Variable", values = c("cyan4","chocolate4","darkolivegreen4","gray","black","goldenrod"))+
   scale_fill_manual(name = "Variable", values = c("cyan4","chocolate4","darkolivegreen4","gray","black","goldenrod"))+
@@ -79,6 +77,13 @@ group_biomass_plot <- ggplot(data = group_biomass, aes(x = var, y = ugL, color =
 group_biomass_plot
 #ggsave("./Desktop/FP_exploration/FP_group_biomass_at_sample_depth_2024.png", device = "png",
 #       height = 3, width = 12, units = "in") 
+
+
+
+
+
+
+
 
 
 

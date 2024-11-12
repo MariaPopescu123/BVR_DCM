@@ -866,12 +866,14 @@ final_data_alldates <- final_data_water|>
 
 write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
 
-final_data_alldates
+
+write.csv(final_data_alldates, "./final_data_alldates.csv", row.names = FALSE)
 
 
 looking<- final_data0|>
   filter(TotalConc_ugL>380)
 
+#"2022-08-18"
 
 ####DCM depth correlations####
 #removed buoyancy_freq for now bc had -inf will come back to
@@ -990,7 +992,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2014, 2019)
+results <- correlations(2019, 2019)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -1105,7 +1107,7 @@ daily_cor <- final_data0|>
          "NH4_ugL", "NO3NO2_ugL", "SRP_ugL", "DOC_mgL", "DIC_mgL", 
          "DC_mgL", "PAR_LAP", "PAR_umolm2s", "sec_LAP", "Temp_C", "buoyancy_freq")
 
-daily_cor_result <- cor(daily_cor[,c(1:32)], method = "spearman", use = "pairwise.complete.obs")
+daily_cor_result <- cor(daily_cor[,c(1:31)], method = "spearman", use = "pairwise.complete.obs")
   
 daily_cor_result[lower.tri(daily_cor_result)] = ""
 
@@ -1192,7 +1194,7 @@ ggplot(max_total_per_day, aes(x = DayOfYear, y = Depth_m, group = Year)) +
   geom_text(data = max_total_per_year, 
             aes(x = DayOfYear, y = Depth_m, 
                 label = paste0("Max: ", round(TotalConc_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
-            vjust = -.5, hjust = 0.5, color = "black", size = 3) +  # Adjust text position
+            vjust = -.5, hjust = 0.5, color = "black", size = 2.5) +  # Adjust text position
   theme_bw() +
   labs(x = "Day of Year", y = "Depth (m)", title = "DCM Depths Across Years (Only Showing Data with Totals > 20)") +
   scale_y_reverse(limits = c(10, 0)) +  # Invert y-axis from 0 to 10
@@ -1344,7 +1346,6 @@ ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
   geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
   ggtitle(label = "Peak Magnitudes only displaying TotalConc > 20")+
-  ylim(0, 150) +  # Set the y-axis limits, reversing the range
   labs(x = "Year", y = "Peak Magnitude", color = "TotalConc ugL") +  # Label the legend
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
@@ -1356,6 +1357,15 @@ ggplot(DCM_final, aes(x = thermocline_depth, y = Totals_DCM_depth, color = PZ))+
 looking<- DCM_final%>%
   filter(thermocline_depth <3)|>
   select(Totals_DCM_depth, thermocline_depth, Date, WaterLevel_m)
+
+ggplot(DCM_final, aes(x = Totals_DCM_depth, y = PZ, color = thermocline_depth)) +
+  geom_point() +
+#  scale_x_log10() +
+#  scale_y_log10() +
+  labs(title = "Thermocline vs PZ",
+       x = "Totals_DCM_depth",
+       y = "PZ ")
+
 
 #"2016-05-19" "2016-08-04" dates with Totals_DCM_depth >9.5
 
