@@ -24,7 +24,7 @@ chlorophyll_data <- final_data0 %>%
   ungroup()|>
   mutate(Reservoir = "BVR")|>
   mutate(Date = Date)|> #no actual time
-  filter(DayOfYear > 133, DayOfYear < 285, TotalConc_ugL >20)|>
+  filter(TotalConc_ugL >20)|>
   filter(!(month(Date) == 8 & year(Date) == 2017 & TotalConc_ugL < 35)) #weird drop here
 
 

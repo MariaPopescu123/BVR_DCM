@@ -533,7 +533,7 @@ ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
 #visualize thermocline depth across all years
 ggplot(final_datathermo, aes(x = Date, y = thermocline_depth))+
   scale_y_reverse()+
-  geom_line()
+  geom_point()
 #2016-10-11 looks very deep but it is real
 
 
@@ -613,9 +613,14 @@ final_databuoy <- alldata_andmetacalc|>
 
 ####Waterlevels####
 
+wtrlvl2<- wtrlvl|>
+  mutate(Date = as.Date(DateTime))|>
+  filter(Reservoir == "BVR", Site == 50)
+
 #list of DOY for interpolation purpose
 DOY_list <- 32:334  # DOYs from February 1 to November 30
 years <- unique(year(wtrlvl2$Date))
+
 DOY_year_ref <- expand.grid(Year = years, DOY = DOY_list)|>
   arrange(Year, DOY)
 
@@ -659,11 +664,17 @@ water_levelsjoined <- DOY_year_ref|>
 water_levelscoalesced<- water_levelsjoined|>
   mutate(WaterLevel_m = coalesce(LvlDepth_m_13,WaterLevel_m))|>
   select(Year, DOY, WaterLevel_m)
-   
+
 final_data_water<- final_databuoy|>
   mutate(DOY = yday(Date))|>
   mutate(Year = year(Date))|>
   left_join(water_levelscoalesced, by = c("DOY", "Year"), relationship = "many-to-many" )
+
+#ggplot(final_data_water, aes(x = Date, y = WaterLevel_m))+
+#  geom_point()+
+#  labs(title = "BVR Water Level")+
+#  scale_x_date(date_labels = "%Y")
+
 
 #SKIP THIS FOR NOW. GO TO PEAK WIDTH
 #need to add the bathymetry here for surface area at different depths
@@ -809,7 +820,7 @@ final_data0 <- final_data_water |>
   mutate(secchi_PZ = if_else(secchi_PZ>10, 9.5, secchi_PZ))|>
   mutate(Date = as.Date(Date, format = "%Y-%m-%d")) |>
   mutate(DayOfYear = yday(Date)) |>
-  filter(DayOfYear > 133, DayOfYear < 286)|>  # Timeframe filtering
+  filter(DayOfYear > 133, DayOfYear < 286)|>  # Timeframe filtering     May 13 - October 12
   rename_with(~ gsub("^interp_", "", .), starts_with("interp_"))  # Remove "interp_" prefix
 
 #same thing but including all data to see flora data availability
@@ -854,6 +865,8 @@ final_data_alldates <- final_data_water|>
 ####final dataframe####
 
 write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
+
+final_data_alldates
 
 
 looking<- final_data0|>
