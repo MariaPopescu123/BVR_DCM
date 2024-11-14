@@ -520,10 +520,10 @@ both_merged<- thermocline_df|>
   left_join(thermocline_df_unique, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")|>
   mutate(thermocline_depth = coalesce(thermocline_depth.y, thermocline_depth.x))|>
   mutate(Date = Date.x)|>
-  select(-Date.y, thermocline_depth.y, thermocline_depth.x)
+  select(-Date.y, -thermocline_depth.y, -thermocline_depth.x)
 
 #add to frame
-final_datathermocline <- final_datanpratio|>
+final_datathermocline <- final_datamet|>
   left_join(both_merged, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")
 
 initial_thermo <- final_datathermocline|>
@@ -540,7 +540,9 @@ final_datathermo <- initial_thermo|>
   mutate(thermocline_depth = if_else(!Date %in% c("2018-06-21", "2016-10-25"), thermocline_depth, NA_real_))|> #watercolumn mixed
   mutate(thermocline_depth = if_else(Date %in% c("2020-08-06"), 3.75, thermocline_depth))|>
   group_by(Date)|>
-  mutate(thermocline_depth = mean(thermocline_depth), na.rm = TRUE)
+  mutate(thermocline_depth = mean(thermocline_depth), na.rm = TRUE)|>
+  select(-Date.x, -Date.y, -Date.x.x)|>
+  relocate(Date, .before = DateTime)
 
 #checking to make sure the thermocline is where I expect
 conflicts_prefer(dplyr::filter)
@@ -629,7 +631,7 @@ alldata_andmetacalc <- final_datathermometa|>
   mutate(metalimnion_lower = if_else(thermocline_depth > metalimnion_lower | thermocline_depth < metalimnion_upper, NA_real_, metalimnion_lower), #if thermocline falls outside the indicated metalimnion, the metalimnion is calculated incorrectly
    metalimnion_upper = if_else(thermocline_depth > metalimnion_lower | thermocline_depth < metalimnion_upper, NA_real_, metalimnion_upper))|>
   mutate(meta_width = (metalimnion_lower-metalimnion_upper))|>
-  select(-Date.y, -na.rm, -thermocline_depth.y, -thermocline_depth.x, -Date.x.x, -Date.x)|>
+  select(-na.rm)|>
   mutate(meta_width = if_else(is.na(thermocline_depth), NA_real_, meta_width))
 
 
@@ -687,8 +689,8 @@ BVRplatform2_interpolated <- DOY_year_ref |>
   select(Year, DOY, DateTime, LvlDepth_m_13)
 
 water_levelsjoined <- DOY_year_ref|>
-  left_join(BVRplatform2_interpolated, by = c("Year", "DOY"))|>
-  left_join(wtrlvl2_interpolated, by = c("Year", "DOY"))|>
+  left_join(BVRplatform2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
+  left_join(wtrlvl2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
   filter(Year>2013)
 
 water_levelscoalesced<- water_levelsjoined|>
@@ -943,6 +945,9 @@ DCM_final <- final_data0 |>
     thermocline_depth = mean(thermocline_depth, na.rm = TRUE),
     meta_width = mean(meta_width, .na.rm = TRUE),
     WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE),
+    maxdaily_airtemp = mean(maxdaily_airtemp, na.rm = TRUE),
+    mindaily_airtemp = mean(mindaily_airtemp, na.rm = TRUE),
+    precip_daily = mean(precip_daily, na.rm = TRUE),
     .groups = "drop"  # Ungroup to prevent grouping issues in the following steps
   )|>
   filter(Totals_DCM_conc > 20)
@@ -1014,7 +1019,7 @@ correlations <- function(year1, year2) {
     filter(month(Date) > 4, month(Date) < 10) |>
     filter(Totals_DCM_conc > 20)
   
-  drivers_cor <- cor(DCM_final_cor[,c(2:66)],
+  drivers_cor <- cor(DCM_final_cor[,c(2:69)],
                      method = "spearman", use = "pairwise.complete.obs")
  
   list(drivers_cor = drivers_cor, DCM_final_cor = DCM_final_cor)
@@ -1022,7 +1027,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2019, 2019)
+results <- correlations(2014, 2023)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -1060,6 +1065,7 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
   theme_minimal() +  # Use a minimal theme
   theme(axis.text.y = element_text(size = 10),  # Adjust y-axis text size
         plot.title = element_text(hjust = 0.5))  # Center the title
+
 
 ####correlations across years,max day each year####
 #these are the days that the max TotalConc_ugL occurs. The biggest bloom. 
@@ -1678,6 +1684,9 @@ yearDCM_final <- DCM_final |>
       y = "Variables"
     ) +
     theme_minimal()
+  
+  
+####CCM####
   
   
 
