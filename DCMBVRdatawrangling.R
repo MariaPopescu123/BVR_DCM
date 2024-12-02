@@ -1686,7 +1686,36 @@ yearDCM_final <- DCM_final |>
     theme_minimal()
   
   
-####CCM####
+  
+  
+####LSTM####
+  library(keras)
+  
+  # Define number of timesteps and features
+  timesteps <- # number of past observations per sequence
+    n_features <- length(cols_to_interpolate)  # number of features
+  
+  # Build the model
+  model <- keras_model_sequential()
+  model %>%
+    layer_lstm(units = 50, return_sequences = TRUE, input_shape = c(timesteps, n_features)) %>%
+    layer_lstm(units = 25) %>%
+    layer_dense(units = 1)  # adjust units based on your prediction target
+  
+  # Compile the model
+  model %>% compile(loss = "mse", optimizer = "adam")  # adjust loss and optimizer
+  
+  # Train the model
+  model %>% fit(train_data_sequences, train_targets, epochs = 100, batch_size = 32)
+  
+#layer_lstm: Defines LSTM layers with the number of units (neurons) and options like return_sequences for feeding information through layers.
+#layer_dense: Final layer for predicting the target variable (e.g., Totals_DCM_conc).
+#compile: Sets the loss function (e.g., mean squared error for regression) and optimizer (e.g., Adam).
+#fit: Trains the model with your prepared training sequences and target values (train_data_sequences, train_targets).
+  
+  
+  #prediction
+  predicted_values <- predict(model, test_data_sequences)
   
   
 
