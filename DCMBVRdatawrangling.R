@@ -1687,7 +1687,183 @@ yearDCM_final <- DCM_final |>
   
   
   
+
+####ARIMA####
+  # adapted from Carly's code
   
+  
+  #pchip for interpolation - signal package - will need to specify to use this package 
+  # pracma::pchip is another 
+  # zoo::na.approx
+  rm(list=ls(all=TRUE))
+  library(dplyr)
+  library(tidyr)
+  library(lubridate)
+  library(stringr)
+  library(ggplot2)
+  library(readr)
+  library(forecast)
+  library(ggplot2)
+  library(fable)
+  library(tsibble)
+  
+  metals <- read_csv("https://pasta.lternet.edu/package/data/eml/edi/455/8/9c8c61b003923f4f03ebfe55cea8bbfd")
+  
+  #metals <- read_csv("https://raw.githubusercontent.com/carlybauer/Reservoirs/refs/heads/master/Data/DataAlreadyUploadedToEDI/EDIProductionFiles/MakeEMLmetals/2024/Metals_2014_2023.csv")
+  # changes to the proper format
+  metals$DateTime <- as.POSIXct(metals$DateTime)
+  
+  metals <- metals %>% 
+    mutate(Year = year(DateTime)) %>% # mutate creates new Year variable from DateTime variable to be able to look at specific years
+    mutate(Date_real = date(DateTime)) %>% 
+    filter(Reservoir == "FCR", Site == 50, Year >= 2020, Depth_m == 1.6 )
+  
+  m_data <- metals %>% 
+    select(-Reservoir, -Site, -starts_with("Flag"), -DateTime)
+  
+  m_data<- m_data %>%
+    select(Date_real, Year, Depth_m, SBa_mgL, TBa_mgL, 
+           SCu_mgL, TCu_mgL, SSr_mgL, TSr_mgL, SAl_mgL, TAl_mgL) %>% 
+    drop_na()
+  
+  # make sure it's recognizing data as a time series
+  df <- as_tsibble(m_data)
+  
+  # put into week intervals 
+  df <- df %>%
+    mutate(Week = week(Date_real))
+  
+  start_date <- as.Date("2020-01-01")
+  end_date <- as.Date("2023-12-31")
+  
+  weekly_dates <- data.frame(
+    Date_fake = seq.Date(from = start_date, to = end_date, by = "week")
+  ) %>%
+    mutate(Year = year(Date_fake),
+           Week = week(Date_fake))
+  
+  df_weekly <- weekly_dates %>%
+    left_join(df, by = c("Year", "Week"))
+  
+  # need to gap fill - possible solution below 
+  # linear interpolation, carrying forward the last observation
+  # df_weekly <- df_weekly %>%
+  #   arrange(Date) %>%
+  #   tidyr::fill(SBa_mgL:TAl_mgL, .direction = "downup")
+  
+  
+  # attr(df, 'interval') <- tsibble::new_interval(.regular = FALSE)
+  # df <- df %>% 
+  #   tsibble::update_tsibble(.data, regular = TRUE)
+  
+  # Check for duplicates in Date_fake
+  duplicates(df_weekly, index = Date_fake)
+  # Summarize by mean for each Date_fake if there are duplicates
+  df_weekly <- df_weekly %>%
+    group_by(Date_fake) %>%
+    summarise(across(where(is.numeric), mean, na.rm = TRUE)) %>%
+    ungroup()
+  
+  # Convert to a tsibble, specifying Date_fake as the index
+  df_weekly <- df_weekly %>%
+    as_tsibble(index = Date_fake)
+  
+  # Fill gaps in the data
+  df_weekly <- df_weekly %>%
+    fill_gaps()
+  
+  # df_weekly <- as_tsibble(df_weekly)
+  # df_weekly <- df_weekly %>% 
+  #    tsibble::fill_gaps()
+  
+  my.arima <- df_interp %>%
+    model(Ba_ARIMA = fable::ARIMA(TBa_mgL)) 
+  my.arima #TBa_mgL (3,1,0)
+  
+  # Interpolate only the TBa_mgL column and add it back to df_weekly
+  df_interp <- df_weekly %>%
+    mutate(across(SBa_mgL:TAl_mgL, ~ forecast::na.interp(.)))
+  
+  # Extract forecast data with mean and confidence intervals
+  forecast_data <- forecast(my.arima, h = 20) %>%
+    as_tibble() %>%  # Convert forecast to a regular data frame
+    transmute(
+      Date_fake,
+      mean = as.numeric(.mean),
+      lower_80 = as.numeric(hilo(TBa_mgL, level = 80)[[1]]$lower),
+      upper_80 = as.numeric(hilo(TBa_mgL, level = 80)[[1]]$upper),
+      lower_95 = as.numeric(hilo(TBa_mgL, level = 95)[[1]]$lower),
+      upper_95 = as.numeric(hilo(TBa_mgL, level = 95)[[1]]$upper)
+    )
+  
+  # Prepare the actual (known) data
+  known_data <- df_weekly %>%
+    filter(!is.na(TBa_mgL)) %>%
+    select(Date_fake, TBa_mgL) %>%
+    rename(mean = TBa_mgL)  # Rename for consistency in plotting
+  
+  # Combine known and forecasted data
+  combined_data <- bind_rows(
+    known_data %>% mutate(type = "Known"),
+    forecast_data %>% mutate(type = "Forecast")
+  )
+  
+  # Plot known data and forecast with confidence intervals
+  ggplot(combined_data, aes(x = Date_fake, y = mean, color = type)) +
+    geom_line() +
+    geom_ribbon(data = filter(combined_data, type == "Forecast"),
+                aes(ymin = lower_80, ymax = upper_80), fill = "blue", alpha = 0.2) +
+    geom_ribbon(data = filter(combined_data, type == "Forecast"),
+                aes(ymin = lower_95, ymax = upper_95), fill = "blue", alpha = 0.1) +
+    scale_color_manual(values = c("Known" = "black", "Forecast" = "blue")) +
+    labs(title = "TBa_mgL Forecast with Historical Data", y = "TBa_mgL", x = "Date") +
+    theme_minimal()
+  
+  # Generate the forecast and extract the mean and confidence intervals
+  forecast_data <- forecast(my.arima, h = 20) %>%
+    mutate(
+      mean = as.numeric(.mean),
+      lower_80 = hilo(TBa_mgL, level = 80)$lower,
+      upper_80 = hilo(TBa_mgL, level = 80)$upper,
+      lower_95 = hilo(TBa_mgL, level = 95)$lower,
+      upper_95 = hilo(TBa_mgL, level = 95)$upper
+    )
+  
+  # Plot the forecast
+  ggplot(forecast_data, aes(x = Date_fake)) +
+    geom_line(aes(y = mean), color = "blue") +
+    geom_ribbon(aes(ymin = lower_80, ymax = upper_80), fill = "blue", alpha = 0.2) +
+    geom_ribbon(aes(ymin = lower_95, ymax = upper_95), fill = "blue", alpha = 0.1) +
+    labs(title = "Forecast of TBa_mgL", y = "TBa_mgL", x = "Date") +
+    theme_minimal()
+  
+  # using forecast package
+   my.arima <-auto.arima(df$TBa_mgL)
+   plot(forecast(my.arima, h=20))
+  
+  #finding time differences to maybe interpolate
+  # diff(df$DateTime)
+  
+  # then check residuals using acf 
+  # and portmanteau test 
+  # Acf(my.arima$residuals)
+  
+  # mydata <- m_data
+  # colnames(mydata)
+  # 
+  # driver_cor <- cor(mydata, method = "spearman", use = "pairwise.complete.obs")
+  # driver_cor[lower.tri(driver_cor)]=""
+  # driver_cor
+  # write.csv(driver_cor, file = "Metal_driver_cor_ref.csv", row.names = FALSE)
+  
+  
+  
+  # ACF -> checking for stationarity
+  ## drop quickly to 0 = stationary 
+  # ## decreases slowly = non stationary 
+  # Acf(my.fp.data$SBa_mgL)
+  
+   
 ####LSTM####
   library(keras)
   
@@ -1718,6 +1894,8 @@ yearDCM_final <- DCM_final |>
   predicted_values <- predict(model, test_data_sequences)
   
   
+  
+
 
 
 
