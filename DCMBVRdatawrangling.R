@@ -54,7 +54,7 @@ BVRplatform <- read.csv("./BVRplatform.csv")
 phytos <- current_df %>% 
   filter(Reservoir == "BVR", Site == 50)%>%
   mutate(Date  = as_date(DateTime)) |> 
-  filter((hour(DateTime) >= 8), (hour(DateTime) <= 15))|>
+#filter((hour(DateTime) >= 8), (hour(DateTime) <= 15))|>
   filter(!(CastID == 592))|> #filter out weird drop in 2017
   filter(!(CastID == 395))|> #weird drop in 2016
 #  filter(Flag_TotalConc_ugL != 2,Flag_TotalConc_ugL != 3)|> #2 is instrument malfunction and #3 is low transmission value
@@ -71,6 +71,9 @@ DCM_BVRdata <- phytos %>%
   mutate(DOY = yday(DateTime))%>%
   mutate(Date  = as_date(DateTime)) |> 
   select(Date, DateTime, CastID, Depth_m, Totals_DCM_conc, Totals_DCM_depth, TotalConc_ugL,  Temp_C)
+
+#export csv file for heatmaps
+write.csv(DCM_BVRdata, "phytos_for_heatmaps", row.names = FALSE)
 
 #### metals  ####
 {

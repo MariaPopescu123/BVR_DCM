@@ -124,24 +124,23 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, chlorophyll_data = NA, 
 {
   
   b1 <- flora_heatmap(fp_data = heatmap_data, year = 2014, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-# b2 <- flora_heatmap(fp_data = heatmap_data,  year = 2015, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-#  b3 <- flora_heatmap(fp_data = heatmap_data,  year = 2016, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+ b2 <- flora_heatmap(fp_data = heatmap_data,  year = 2015, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b3 <- flora_heatmap(fp_data = heatmap_data,  year = 2016, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   b4 <- flora_heatmap(fp_data = heatmap_data,  year = 2017, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-#  b5 <- flora_heatmap(fp_data = heatmap_data,  year = 2018, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b5 <- flora_heatmap(fp_data = heatmap_data,  year = 2018, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   b6 <- flora_heatmap(fp_data = heatmap_data,  year = 2019, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = heatmap_data,  year = 2020, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data, max_legend_value = 110)
+  b7 <- flora_heatmap(fp_data = heatmap_data,  year = 2020, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   b8 <- flora_heatmap(fp_data = heatmap_data,  year = 2021, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   b9 <- flora_heatmap(fp_data = heatmap_data,  year = 2022, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   b10 <- flora_heatmap(fp_data = heatmap_data,  year = 2023, site = 50, z = "TotalConc_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
   
-  bluegreens <- plot_grid(
-    b1, b2, b3,
-    b4, b5,b6,
-    b7, b8, b9,
-    ncol = 3
+  totals_heatmaps <- plot_grid(
+    b1, b2, b3, b4, b5,
+    b6, b7, b8, b9, b10,
+    ncol = 5
   )
   
-  print(bluegreens)
+  print(totals_heatmaps)
   
   p1 <- flora_heatmap(fp_data = heatmap_data,  year = 2022, site = 50, z = "TotalConc_ugL")
   p2 <- flora_heatmap(fp_data = heatmap_data,  year = 2022, site = 50, z = "BrownAlgae_ugL")
