@@ -9,6 +9,8 @@ pacman::p_load(tidyverse, lubridate, akima, reshape2,
 
 heatmap_data <- read.csv("./final_data_alldates.csv")
 
+phytos_for_heatmaps <- read.csv("./phytos_for_heatmaps")
+
 
 #if you just want to look at the dates within the timeframe chosen use heatmap_data.csv
 #if you want to have the data for all dates use ./final_data_alldates.csv

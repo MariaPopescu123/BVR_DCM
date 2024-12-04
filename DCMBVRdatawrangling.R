@@ -57,7 +57,7 @@ phytos <- current_df %>%
 #filter((hour(DateTime) >= 8), (hour(DateTime) <= 15))|>
   filter(!(CastID == 592))|> #filter out weird drop in 2017
   filter(!(CastID == 395))|> #weird drop in 2016
-#  filter(Flag_TotalConc_ugL != 2,Flag_TotalConc_ugL != 3)|> #2 is instrument malfunction and #3 is low transmission value
+  #filter(Flag_TotalConc_ugL != 2,Flag_TotalConc_ugL != 3)|> #2 is instrument malfunction and #3 is low transmission value when I remove these too much data is
   group_by(CastID)|>
   mutate(Totals_DCM_conc = max(TotalConc_ugL, na.rm = TRUE))|> #concentration of totals at totals DCM
   mutate(Totals_DCM_depth = ifelse(TotalConc_ugL == Totals_DCM_conc, Depth_m, NA_real_))|>
@@ -73,7 +73,9 @@ DCM_BVRdata <- phytos %>%
   select(Date, DateTime, CastID, Depth_m, Totals_DCM_conc, Totals_DCM_depth, TotalConc_ugL,  Temp_C)
 
 #export csv file for heatmaps
-write.csv(DCM_BVRdata, "phytos_for_heatmaps", row.names = FALSE)
+#write.csv(DCM_BVRdata, "phytos_for_heatmaps", row.names = FALSE)
+#this csv is to test how the phytos dispaly in the separate file "phytosheatmapstest.R
+
 
 #### metals  ####
 {
@@ -508,7 +510,7 @@ thermocline_df <- final_datamet |>
 #fixing incorrect thermoclines
 thermocline_df_unique<- thermocline_df|>
   filter(thermocline_depth<3)|>
-  group_by(Date)|>
+  group_by(Date, CastID)|>
   filter(Depth_m > thermocline_depth)|>
   mutate(thermocline_depth = thermo.depth(Temp_C, 
                                           Depth_m, 
@@ -545,6 +547,7 @@ final_datathermo <- initial_thermo|>
   group_by(Date)|>
   mutate(thermocline_depth = mean(thermocline_depth), na.rm = TRUE)|>
   select(-Date.x, -Date.y, -Date.x.x)|>
+  filter(thermocline_depth > 2, thermocline_depth <8)|>
   relocate(Date, .before = DateTime)
 
 #checking to make sure the thermocline is where I expect
@@ -906,7 +909,7 @@ write.csv(final_data_alldates, "./final_data_alldates.csv", row.names = FALSE)
 
 
 looking<- final_data0|>
-  filter(TotalConc_ugL>380)
+  filter(year(Date) == 2022)
 
 #"2022-08-18"
 
@@ -1009,7 +1012,7 @@ DCM_final <- DCM_final |>
   rename_with(~ gsub("max_depth_(.*)", "max_\\1_depth", .), starts_with("max_depth_"))|>
   rename_with(~ gsub("min_depth_(.*)", "min_\\1_depth", .), starts_with("min_depth_"))
 
-#write.csv(DCM_final,"./DCM_final.csv",row.names = FALSE)
+write.csv(DCM_final,"./DCM_final.csv",row.names = FALSE)
 
 
 
@@ -1135,16 +1138,17 @@ blooms <- final_data0|>
   ungroup()
   
 
-#"2014-08-13" "2015-08-08" "2016-06-16" "2017-07-20" "2018-08-16" "2019-06-06" "2020-09-16" "2021-08-09" "2022-08-01" "2023-07-31"
-#change date to see correlations for the singular day that max was the biggest
+#max blooms "2014-07-23" "2015-06-25" "2016-06-30" "2017-08-17" "2018-08-16" "2019-05-23" "2020-08-20" "2021-08-09" "2022-08-18" "2023-07-17"#change date to see correlations for the singular day that max was the biggest
+
 daily_cor <- final_data0|>
-  filter(Date %in% c("2019-06-06"))|>
+  filter(Date %in% c("2016-06-30"))|>
   select("Depth_m", "TotalConc_ugL", "TotalConc_ugL", "SFe_mgL", "TFe_mgL", "SMn_mgL", "SCa_mgL",
          "TCa_mgL", "TCu_mgL", "SBa_mgL", "TBa_mgL",
          "CO2_umolL", "CH4_umolL", "DO_mgL",
          "DOsat_percent", "Cond_uScm", "ORP_mV", "pH", "np_ratio", "TN_ugL", "TP_ugL", 
          "NH4_ugL", "NO3NO2_ugL", "SRP_ugL", "DOC_mgL", "DIC_mgL", 
          "DC_mgL", "PAR_LAP", "PAR_umolm2s", "sec_LAP", "Temp_C", "buoyancy_freq")
+
 
 daily_cor_result <- cor(daily_cor[,c(1:31)], method = "spearman", use = "pairwise.complete.obs")
   
@@ -1174,7 +1178,7 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
   geom_text(aes(label = round(Correlation, 2)), 
             position = position_stack(vjust = 0.5), 
             color = "white") +  # Add correlation values as text on bars
-  labs(title = "Significant Correlations (Cutoff 0.65) 2019-06-06 (max 2019 conc, DCM depth 8.6)",
+  labs(title = "Significant Correlations (Cutoff 0.65) 2016-06-30",
        x = "Correlation Value",
        y = "Variable Pairs") +
   theme_minimal() +  # Use a minimal theme
@@ -1214,9 +1218,17 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
                 label = paste0("Max: ", round(TotalConc_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
             vjust = 1.5, hjust = 0.5, color = "black", size = 3) +  # Smaller text and place below the point
   theme_bw() +
+  geom_vline(xintercept = 133, linetype = "dashed", color = "red", size = 0.8) +  # Add vertical line at x = 133
+  geom_vline(xintercept = 286, linetype = "dashed", color = "red", size = 0.8) +  # Add vertical line at x = 286
   labs(x = "Day of Year", y = "Year", title = "Fluoroprobe Data Availability") +
   scale_x_continuous(breaks = seq(1, 365, by = 30), limits = c(1, 365)) +  # Set x-axis limits and breaks
-  theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
+  theme(panel.grid.minor = element_blank())+  # Optional: remove minor grid lines
+  theme(
+    panel.grid.minor = element_blank(),  # Optional: remove minor grid lines
+    axis.title = element_text(size = 14),  # Make axis titles larger
+    axis.text = element_text(size = 12),  # Make axis text larger
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)  # Make plot title larger and centered
+  )
 
 ####DCM depth every year####
 # Find the maximum TotalConc_ugL value for each day
@@ -1285,6 +1297,7 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
   ylim(10, 0) +  # Set the y-axis limits, reversing the range
   labs(x = "Month", y = "DCM Depth", color = "TotalConc ugL") +  # Label the legend
+  ggtitle(label = "DCM Depths only displaying Totals > 20") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #visualizing just one box per year
@@ -1328,6 +1341,7 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   facet_wrap(~ Year) +  # Create a panel for each year
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
   labs(x = "Month", y = "Peak Width", color = "Total ugL") +  # Label the legend
+  ggtitle(label = "Peak Width only displaying TotalConc > 20") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #one box per year
@@ -1370,6 +1384,7 @@ ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August"))
   facet_wrap(~ Year) +  # Create a panel for each year
   scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
   labs(x = "Month", y = "Peak Magnitude", color = "TotalConc ugL") +  # Label the legend
+  ggtitle(label = "Peak Magnitudes only displaying TotalConc > 20")+
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #visualizing just one box per year
@@ -1405,6 +1420,9 @@ ggplot(DCM_final, aes(x = Totals_DCM_depth, y = PZ, color = thermocline_depth)) 
        x = "Totals_DCM_depth",
        y = "PZ ")
 
+
+looking<- DCM_final|>
+  filter(Totals_DCM_depth>9)
 
 #"2016-05-19" "2016-08-04" dates with Totals_DCM_depth >9.5
 
@@ -1508,19 +1526,15 @@ yearDCM_final <- DCM_final |>
     filter(!Variable %in% c("peak.top", "pH", "min_pH_depth",  "min_Cond_uScm_depth", "max_Cond_uScm_depth", "peak.magnitude", "peak.bottom", "secchi_PZ", "PAR_PZ", "max_Cond_uScm_depth", "DayOfYear", "DOY", "min_Cond_uScm_dept", "min_CH4_umolL_depth", "max_CH4_umolL_depth"))
   
   
-  
   # Create the plot
   ggplot(filtered_importance_df, aes(x = `%IncMSE`, y = reorder(Variable, `%IncMSE`))) +
     geom_point(color = "blue", size = 3) +
     labs(
-      title = "Variable Importance based on % IncMSE 2014-2023",
+      title = "Variable Importance based on % IncMSE 2014-2023 for Totals_DCM_depth",
       x = "% IncMSE",
       y = "Variables"
     ) +
     theme_minimal()
-  
-  
-  
   
   
 
@@ -1682,7 +1696,7 @@ yearDCM_final <- DCM_final |>
   ggplot(filtered_importance_df, aes(x = `%IncMSE`, y = reorder(Variable, `%IncMSE`))) +
     geom_point(color = "blue", size = 3) +
     labs(
-      title = "Variable Importance based on % IncMSE 2014-2023",
+      title = "Variable Importance based on % IncMSE 2014-2023 TotalConc_magnitude",
       x = "% IncMSE",
       y = "Variables"
     ) +
