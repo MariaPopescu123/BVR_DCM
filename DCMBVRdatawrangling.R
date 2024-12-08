@@ -500,10 +500,10 @@ thermocline_df <- final_datamet |>
   mutate(thermocline_depth = thermo.depth(
     Temp_C, 
     Depth_m, 
-    Smin = 2, 
+    Smin = .1, 
     seasonal = TRUE, 
     index = FALSE,
-    mixed.cutoff = 3
+    mixed.cutoff = 1
   )) |>
   ungroup()
 
@@ -514,10 +514,10 @@ thermocline_df_unique<- thermocline_df|>
   filter(Depth_m > thermocline_depth)|>
   mutate(thermocline_depth = thermo.depth(Temp_C, 
                                           Depth_m, 
-                                          Smin = 2, 
+                                          Smin = .1, 
                                           seasonal = TRUE, 
                                           index = FALSE,
-                                          mixed.cutoff = 3
+                                          mixed.cutoff = 1
   ))|>
   ungroup()
 
@@ -554,7 +554,7 @@ final_datathermo <- initial_thermo|>
 conflicts_prefer(dplyr::filter)
 
 plot_data <- final_datathermo |>
-  filter(Date %in% c("2019-09-04"))|> #change depths here to see a specific day and see if the thermocline matches up
+  filter(Date %in% c("2022-10-11"))|> #change depths here to see a specific day and see if the thermocline matches up
   select(Date, Depth_m, thermocline_depth, Temp_C)
 # Extract the thermocline depth for the specific date for the line
 thermocline_depth_value <- unique(plot_data$thermocline_depth)
@@ -564,7 +564,7 @@ ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
   geom_point() +  # Add points
   geom_hline(yintercept = thermocline_depth_value, linetype = "dashed", color = "red") +  # Add the thermocline line
   scale_y_reverse() +  # Inverts the y-axis
-  labs(x = "Temperature (°C)", y = "Depth (m)", title = "Thermocline Depth on 2016-10-25") +
+  labs(x = "Temperature (°C)", y = "Depth (m)", title = "Thermocline Depth on 2022-10-11") +
   theme_minimal()  # Optional: apply a clean theme
 
 
@@ -574,7 +574,9 @@ ggplot(final_datathermo, aes(x = Date, y = thermocline_depth))+
   geom_point()
 #2016-10-11 looks very deep but it is real
 
-
+looking<- final_datathermo|>
+  filter(thermocline_depth>7, year(Date) == 2022)
+# "2018-05-17" "2018-06-07" "2018-06-14" very shallow
 
 #very deep thermoclines not fixed yet
 #"2021-09-06" recalculate this thermocline. currently at 6.75 and it looks closer to 5
@@ -834,7 +836,7 @@ peaks_calculated <- for_peaks %>%
 
 final_data_peaks <- peaks_calculated|>
   group_by(Date)|>
-  mutate(peak.magnitude = max(TotalConc_ugL)-mean(TotalConc_ugL))|>
+  mutate(peak.magnitude = max(TotalConc_ugL))|>
   ungroup()|>
   select(Date, Depth_m, total_mean, total_sd, total_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many there are at the DCM for total_conc
 
@@ -913,9 +915,6 @@ looking<- final_data0|>
 
 #"2022-08-18"
 
-####DCM depth correlations####
-#removed buoyancy_freq for now bc had -inf will come back to
-
 # Create a vector of variable names that need to be summarized
 depth_variables <- c("Temp_C", "np_ratio", "SFe_mgL", "TFe_mgL", 
                      "SMn_mgL", "SCa_mgL", "TCa_mgL", 
@@ -929,7 +928,7 @@ depth_variables <- c("Temp_C", "np_ratio", "SFe_mgL", "TFe_mgL",
 # Initialize an empty list to store results
 max_depths <- list()
 
-
+####DCM_final####
 DCM_final <- final_data0 |>
   mutate(Date = as.Date(Date)) |>
   filter(month(Date) >= 4, month(Date) < 10) |>
@@ -980,6 +979,7 @@ for (var in depth_variables) {
     )
 }
 
+
 # Loop through the depth_variables to calculate the depth at which the minimum value occurs for each date
 for (var in depth_variables) {
   DCM_final <- DCM_final |>
@@ -1002,6 +1002,27 @@ for (var in depth_variables) {
     )
 }
 
+#loop through variables to add columns with the variables value at DCM depth
+for (var in depth_variables) {
+  # Dynamically create variable names for values at DCM
+  DCM_final <- DCM_final |>
+    left_join(
+      final_data0 |>
+        filter(month(Date) >= 4, month(Date) < 10) |>
+        group_by(Date) |>
+        mutate(
+          # Create a temporary column indicating the value at DCM
+          !!paste0(var, "_at_DCM") := if_else(DCM == TRUE, .data[[var]], NA_real_)
+        ) |>
+        fill(!!paste0(var, "_at_DCM"), .direction = "downup") |>
+        summarise(
+          # Summarise to keep one row per Date with filled values
+          !!paste0(var, "_at_DCM") := first(!!sym(paste0(var, "_at_DCM"))),
+          .groups = "drop"
+        ),
+      by = "Date"
+    )
+}
 
 # Finalize the DCM_final data frame
 DCM_final <- DCM_final |>
@@ -1016,6 +1037,9 @@ write.csv(DCM_final,"./DCM_final.csv",row.names = FALSE)
 
 
 
+looking<- DCM_final|>
+  select(ends_with("at_DCM"), Date, Totals_DCM_conc)
+
 
 ####correlation function####
 
@@ -1025,12 +1049,14 @@ correlations <- function(year1, year2) {
     filter(month(Date) > 4, month(Date) < 10) |>
     filter(Totals_DCM_conc > 20)
   
-  drivers_cor <- cor(DCM_final_cor[,c(2:69)],
+  drivers_cor <- cor(DCM_final_cor[,c(2:93)],
                      method = "spearman", use = "pairwise.complete.obs")
  
   list(drivers_cor = drivers_cor, DCM_final_cor = DCM_final_cor)
 
 }
+
+####DCMdepth correlations####
 
 #cutoff 0.7
 results <- correlations(2014, 2023)
@@ -1055,7 +1081,50 @@ significant_correlations <- final_data_cor_long |> # Filter correlations based o
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
 significant_correlations <- significant_correlations |>
-  filter(Variable1 %in% c("Totals_DCM_depth"))|>
+  filter(Variable1 %in% c("Totals_DCM_depth"))|> #change to Totals_DCM_depth to see that too
+  filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
+  filter(!str_ends(Variable2, "at_DCM"))|>
+  mutate(Combined = paste(Variable1, "vs", Variable2))
+
+# Plot to visualize correlations
+ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Correlation))) +
+  geom_bar(stat = "identity", fill = "steelblue") +  # Use a bar plot
+  geom_text(aes(label = round(Correlation, 2)), 
+            position = position_stack(vjust = 0.5), 
+            color = "white") +  # Add correlation values as text on bars
+  labs(title = "Significant Correlations (Cutoff 0.65) 2015",
+       x = "Correlation Value",
+       y = "Variable Pairs") +
+  theme_minimal() +  # Use a minimal theme
+  theme(axis.text.y = element_text(size = 10),  # Adjust y-axis text size
+        plot.title = element_text(hjust = 0.5))  # Center the title
+
+####DCM total concentration correlations####
+
+#cutoff 0.7
+results <- correlations(2019, 2023)
+final_data_cor_results <- results$drivers_cor
+final_data_cor_results[lower.tri(final_data_cor_results)] = ""
+final_data_cor <- results$DCM_final_cor
+final_data_cor_results <- results$drivers_cor
+
+final_data_cor_results[lower.tri(final_data_cor_results)] <- NA
+diag(final_data_cor_results) <- NA
+
+# Flatten the correlation matrix into a long format
+final_data_cor_long <- as.data.frame(as.table(final_data_cor_results)) |>
+  filter(!is.na(Freq))  # Remove NAs introduced by setting the lower triangle to NA
+
+final_data_cor_long$Freq <- as.numeric(as.character(final_data_cor_long$Freq))
+
+significant_correlations <- final_data_cor_long |> # Filter correlations based on the cutoff of 0.65
+  filter(abs(Freq) >= 0.65) |>  # Apply cutoff for correlation
+  arrange(desc(abs(Freq)))# Sort by absolute correlation values
+
+colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
+
+significant_correlations <- significant_correlations |>
+  filter(Variable1 %in% c("Totals_DCM_conc"))|> 
   filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
   mutate(Combined = paste(Variable1, "vs", Variable2))
 
@@ -1065,12 +1134,16 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
   geom_text(aes(label = round(Correlation, 2)), 
             position = position_stack(vjust = 0.5), 
             color = "white") +  # Add correlation values as text on bars
-  labs(title = "Significant Correlations (Cutoff 0.65) 2014-2023",
+  labs(title = "Significant Correlations (Cutoff 0.65) 2015",
        x = "Correlation Value",
        y = "Variable Pairs") +
   theme_minimal() +  # Use a minimal theme
   theme(axis.text.y = element_text(size = 10),  # Adjust y-axis text size
         plot.title = element_text(hjust = 0.5))  # Center the title
+
+
+
+
 
 
 ####correlations across years,max day each year####
@@ -1086,7 +1159,10 @@ blooms <- final_data0|>
 
 
 DCM_final_maxdays_cor<- DCM_final|>
-  filter(Date %in% c("2014-09-25", "2015-08-08", "2016-06-16", "2017-07-20", "2018-05-24", "2019-05-16", "2020-08-20", "2021-08-09","2022-09-19", "2023-06-19"))
+  filter(Date %in% c("2014-07-23", "2015-06-25", "2016-06-30", 
+                     "2017-08-17", "2018-08-16", "2019-05-23", 
+                     "2020-08-20", "2021-08-09", "2022-08-18", 
+                     "2023-07-17"))
 
 maxdayscor <- cor(DCM_final_maxdays_cor[,c(2:64)], method = "spearman", use = "pairwise.complete.obs")
 
@@ -1118,7 +1194,7 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
   geom_text(aes(label = round(Correlation, 2)), 
             position = position_stack(vjust = 0.5), 
             color = "white") +  # Add correlation values as text on bars
-  labs(title = "Significant Correlations (Cutoff 0.65) 2014-2023",
+  labs(title = "Significant Correlations (Cutoff 0.65) 2014-2023 for max bloom each year",
        x = "Correlation Value",
        y = "Variable Pairs") +
   theme_minimal() +  # Use a minimal theme
@@ -1138,19 +1214,20 @@ blooms <- final_data0|>
   ungroup()
   
 
-#max blooms "2014-07-23" "2015-06-25" "2016-06-30" "2017-08-17" "2018-08-16" "2019-05-23" "2020-08-20" "2021-08-09" "2022-08-18" "2023-07-17"#change date to see correlations for the singular day that max was the biggest
+#max blooms "2014-07-23" "2015-06-25" "2016-06-30" "2017-08-17" "2018-08-16" "2019-05-23"
+#"2020-08-20" "2021-08-09" "2022-08-18" "2023-07-17"#change date to see correlations for the singular day that max was the biggest
 
 daily_cor <- final_data0|>
-  filter(Date %in% c("2016-06-30"))|>
+  filter(Date %in% c("2023-07-17"))|>
   select("Depth_m", "TotalConc_ugL", "TotalConc_ugL", "SFe_mgL", "TFe_mgL", "SMn_mgL", "SCa_mgL",
          "TCa_mgL", "TCu_mgL", "SBa_mgL", "TBa_mgL",
          "CO2_umolL", "CH4_umolL", "DO_mgL",
          "DOsat_percent", "Cond_uScm", "ORP_mV", "pH", "np_ratio", "TN_ugL", "TP_ugL", 
          "NH4_ugL", "NO3NO2_ugL", "SRP_ugL", "DOC_mgL", "DIC_mgL", 
-         "DC_mgL", "PAR_LAP", "PAR_umolm2s", "sec_LAP", "Temp_C", "buoyancy_freq")
+         "DC_mgL", "PAR_umolm2s", "Temp_C", "buoyancy_freq")
 
 
-daily_cor_result <- cor(daily_cor[,c(1:31)], method = "spearman", use = "pairwise.complete.obs")
+daily_cor_result <- cor(daily_cor[,c(1:29)], method = "spearman", use = "pairwise.complete.obs")
   
 daily_cor_result[lower.tri(daily_cor_result)] = ""
 
@@ -1178,7 +1255,7 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
   geom_text(aes(label = round(Correlation, 2)), 
             position = position_stack(vjust = 0.5), 
             color = "white") +  # Add correlation values as text on bars
-  labs(title = "Significant Correlations (Cutoff 0.65) 2016-06-30",
+  labs(title = "Significant Correlations (Cutoff 0.65) 2023-07-17",
        x = "Correlation Value",
        y = "Variable Pairs") +
   theme_minimal() +  # Use a minimal theme
@@ -1187,7 +1264,7 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
 
 
 looking<- final_data0|>
-  filter(Date %in% c("2019-06-06"))
+  filter(Date %in% c("2022-08-18"))
 
 
 
@@ -1412,13 +1489,13 @@ looking<- DCM_final%>%
   filter(thermocline_depth <3)|>
   select(Totals_DCM_depth, thermocline_depth, Date, WaterLevel_m)
 
-ggplot(DCM_final, aes(x = Totals_DCM_depth, y = PZ, color = thermocline_depth)) +
+ggplot(DCM_final, aes(x = PZ , y = Totals_DCM_depth, color = thermocline_depth)) +
   geom_point() +
 #  scale_x_log10() +
 #  scale_y_log10() +
-  labs(title = "Thermocline vs PZ",
-       x = "Totals_DCM_depth",
-       y = "PZ ")
+  labs(title = "PZ vand DCM Depth",
+       x = "PZ",
+       y = "Totals_DCM_depth ")
 
 
 looking<- DCM_final|>

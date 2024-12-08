@@ -19,3 +19,5 @@ final_data0.csv
 ysi_profiles.csv
 final_data_alldates.csv
 phytos_for_heatmaps
+*.png
+*.csv
