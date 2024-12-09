@@ -17,3 +17,5 @@ BVRplatform.csv
 DCM_final.csv
 final_data0.csv
 ysi_profiles.csv
+*.png
+*.csv

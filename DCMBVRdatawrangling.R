@@ -1,87 +1,248 @@
 # Maria DCM BVR
 #data includes chlorophyll maxima, PAR, secchi, light attenuation, metals, ghgs, nutrients
 
-
-beep <- function(){
-  system("rundll32 user32.dll,MessageBeep") #just putting this here so I can be notified when something that takes a while to run is done
-}  
-
 pacman::p_load(tidyverse, lubridate, akima, reshape2, 
                gridExtra, grid, colorRamps, RColorBrewer, rLakeAnalyzer,
                reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes)
 
 #### Loading Data  ####
 
-#CTD
-CTD <- read.csv("./CTD.csv")
+#ctd data https://portal.edirepository.org/nis/metadataviewer?packageid=edi.200.14
+CTD <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/200/14/0432a298a90b2b662f26c46071f66b8a")
 
-#flora
-current_df <- read.csv("./current_df.csv")
+#flora data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.272.8
+current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/8/0359840d24028e6522f8998bd41b544e")
 
-# metals 
-metalsdf <- read.csv("./metalsdf.csv")
+# metals data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.455.8
+metalsdf <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/455/8/9c8c61b003923f4f03ebfe55cea8bbfd")
 #removed flags for 68 as per Cece's advice
 
-#ghgss
-ghgs <- read.csv("./ghgs.csv")
+#ghgs data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.551.8
+ghgs <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/551/8/454c11035c491710243cae0423efbe7b")
 #not sure whether or not to remove those with flags 3 and 4
 #3 = The difference between the reps are above the limit of quantification and >30% and <50% different from each other. Both replicates were retained but flagged
 #4 = The difference between the reps are above the limit of quantification and >50% different from each other. Both replicates were retained but flagged
 
-#secchi
-secchiframe <- read.csv("./secchiframe.csv")
+#secchi data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.198.11
+secchiframe <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/11/81f396b3e910d3359907b7264e689052")
 
-#ysi
-ysi_profiles <- read.csv("ysi_profiles.csv")
+#ysi https://portal.edirepository.org/nis/mapbrowse?packageid=edi.198.11
+ysi_profiles <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/11/6e5a0344231de7fcebbe6dc2bed0a1c3")
 
-#chemistry
-chemistry <- read.csv("./chemistry.csv")
+#data from here https://portal.edirepository.org/nis/mapbrowse?packageid=edi.199.12
+chemistry <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/199/12/a33a5283120c56e90ea414e76d5b7ddb")
 
 #meteorological data from FCR https://portal.edirepository.org/nis/mapbrowse?packageid=edi.389.8
 options(timeout = 300)
-metdata <- read.csv("./metdata.csv")
+metdata <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/389/8/d4c74bbb3b86ea293e5c52136347fbb0")
 
-#bathymetry
-bath <- read.csv("./bath.csv")
+#bathymetry data for BVR https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1254.1
+bath <- read.csv("https://portal.edirepository.org/nis/dataviewer?packageid=edi.1254.1&entityid=f7fa2a06e1229ee75ea39eb586577184")
 
 #waterlevel data
-wtrlvl <- read.csv("./wtrlvl.csv") 
+wtrlvl <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/725/4/43476abff348c81ef37f5803986ee6e1") 
 
-#waterlevel platform data (for past 2020)
-BVRplatform <- read.csv("./BVRplatform.csv")
+#waterlevel data using the pressure sensor (platform data) https://portal.edirepository.org/nis/metadataviewer?packageid=edi.725.4
+#for past 2020
+BVRplatform <- read.csv("https://portal.edirepository.org/nis/dataviewer?packageid=edi.725.4&entityid=9adadd2a7c2319e54227ab31a161ea12")
 
+####weekly dataframe for interpolation####
+start_date <- as.Date("2014-01-01")
+end_date <- as.Date("2023-12-31")
 
-#just looking remove when done. let's see the flags
-#coming back to this
-unique_dates_2018 <- current_df |>
-  mutate(Date = as.Date(DateTime))|>
-  filter((Flag_Bluegreens_ugL == 3) & year(Date) == 2018)|>
-  select(Date, Depth_m, Bluegreens_ugL, Flag_Bluegreens_ugL)
-
-# View the count of unique dates
-unique_dates_2018
+weekly_dates <- data.frame(
+  Date_fake = seq.Date(from = start_date, to = end_date, by = "week")
+) %>%
+  mutate(Year = year(Date_fake),
+         Week = week(Date_fake))
 
 #adding columns with total_conc max and the depth at which it occurs
 phytos <- current_df %>% 
   filter(Reservoir == "BVR", Site == 50)%>%
   mutate(Date  = as_date(DateTime)) |> 
-  filter((hour(DateTime) >= 8), (hour(DateTime) <= 15))|>
+  #filter((hour(DateTime) >= 8), (hour(DateTime) <= 18))|>
   filter(!(CastID == 592))|> #filter out weird drop in 2017
   filter(!(CastID == 395))|> #weird drop in 2016
-  filter(Flag_Bluegreens_ugL != 2,Flag_Bluegreens_ugL != 3)|> #2 is instrument malfunction and #3 is low transmission value
-  group_by(CastID)|>
-  mutate(Bluegreens_DCM_conc = max(Bluegreens_ugL, na.rm = TRUE))|> #concentration of bluegreens at bluegreens DCM
-  mutate(Bluegreens_DCM_depth = ifelse(Bluegreens_ugL == Bluegreens_DCM_conc, Depth_m, NA_real_))|>
+  #filter(Flag_TotalConc_ugL != 2,Flag_TotalConc_ugL != 3)|> #2 is instrument malfunction and #3 is low transmission value
+  mutate(Week = week(Date))|>
+  mutate(Year = year(Date))|>
+  mutate(DOY = yday(Date))
+
+#add water level to data frame to use as the max depth for creating sequence of depths to interpolate each cast to
+####Waterlevel####
+wtrlvl <- wtrlvl |> 
+  mutate(Date = as.POSIXct(DateTime))
+
+#list of DOY for interpolation purpose
+DOY_list <- 32:334  # DOYs from February 1 to November 30
+years <- unique(year(wtrlvl$Date))
+DOY_year_ref <- expand.grid(Year = years, DOY = DOY_list)|>
+  arrange(Year, DOY)
+
+#Add DOY and Year columns to wtrlvl2, then join with DOY_year_ref
+wtrlvl2 <- wtrlvl |>
+  mutate(Year = year(Date), DOY = yday(Date))
+
+#join and interpolate WaterLevel_m for each DOY in each year
+wtrlvl2_interpolated <- DOY_year_ref |>
+  left_join(wtrlvl2, by = c("Year" = "Year", "DOY" = "DOY")) |>
+  group_by(Year) |>
+  mutate(
+    WaterLevel_m = na.approx(WaterLevel_m, x = DOY, na.rm = FALSE)
+  )|>
+  filter(Year > 2013)|>
+  arrange(Year, DOY)
+
+#now for past 2020 
+#Add DOY and Year columns to wtrlvl2, then join with DOY_year_ref
+BVRplatform2 <- BVRplatform |>
+  filter(Flag_LvlPressure_psi_13 != 5)|>#filter flags, questionable value but left in the dataset
+  mutate(Date = as.Date(DateTime))|>
+  mutate(Year = year(Date), DOY = yday(Date))
+
+#join and interpolate WaterLevel_m for each DOY in each year
+BVRplatform2_interpolated <- DOY_year_ref |>
+  left_join(BVRplatform2, by = c("Year" = "Year", "DOY" = "DOY")) |>
+  group_by(Year) |>
+  mutate(
+    LvlDepth_m_13 = na.approx(LvlDepth_m_13, x = DOY, na.rm = FALSE)
+  )|>
+  filter(Year > 2019, Site == 50)|>
+  arrange(Year, DOY)|>
+  select(Year, DOY, DateTime, LvlDepth_m_13)
+
+water_levelsjoined <- DOY_year_ref|>
+  left_join(BVRplatform2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
+  left_join(wtrlvl2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
+  filter(Year>2013)
+
+water_levelscoalesced<- water_levelsjoined|>
+  mutate(WaterLevel_m = coalesce(LvlDepth_m_13,WaterLevel_m))|>
+  select(Year, DOY, WaterLevel_m)
+
+phytos_waterlevel<- phytos|>
+  mutate(DOY = yday(Date))|>
+  mutate(Year = year(Date))|>
+  left_join(water_levelscoalesced, by = c("DOY", "Year"), relationship = "many-to-many" )
+
+
+####interpolating phytos across depths and across time####
+#first group by cast an interpolate to the nearest .2m
+# Create a sequence of depths for each CastID
+depths_to_interpolate <- phytos_waterlevel %>%
+  group_by(CastID) %>%
+  summarise(
+    depths_to_interpolate = list(seq(0, max(Depth_m, na.rm = TRUE), by = 0.2)),
+    .groups = "drop"
+  ) %>%
+  unnest(depths_to_interpolate) # Expand the depths into rows
+
+# Join the interpolated depths with the original dataset
+phytos_castinterpolated <- depths_to_interpolate %>%
+  left_join(phytos_waterlevel, by = c("CastID")) %>% # Join by CastID first
+  group_by(CastID) %>%
+  mutate(
+    interp_TotalConc_ugL = zoo::na.approx(
+      TotalConc_ugL,
+      x = Depth_m, # Existing depths
+      xout = depths_to_interpolate, # New interpolated depths
+      na.rm = FALSE
+    )
+  ) %>%
   ungroup()
 
+phytos_castsummarised <- phytos_castinterpolated |>
+  select(CastID, Date, DOY, Year, Week, depths_to_interpolate, interp_TotalConc_ugL, WaterLevel_m) |>
+  group_by(CastID, depths_to_interpolate) |>
+  summarise(
+    across(
+      where(is.numeric), 
+      mean, 
+      na.rm = TRUE, 
+      .names = "{.col}" # Calculate mean for numeric columns
+    ),
+    across(
+      where(~ !is.numeric(.)), 
+      first, 
+      .names = "{.col}" # Take the first value for non-numeric columns
+    ),
+    .groups = "drop"
+  )
+
+#some of the casts aren't complete (for example: cast 603 and 604 though they are clearly the same day)
+#summarizing by date will ensure that they are complete
+
+phytos_datesummarised <- phytos_castsummarised|>
+  group_by(Date, depths_to_interpolate)|>
+  summarise(
+    across(
+      where(is.numeric), 
+      mean, 
+      na.rm = TRUE, 
+      .names = "{.col}" # Calculate mean for numeric columns
+    ),
+    across(
+      where(~ !is.numeric(.)), 
+      first, 
+      .names = "{.col}" # Take the first value for non-numeric columns
+    ),
+    .groups = "drop"
+  )|>
+  mutate(Depth_m = depths_to_interpolate)|>
+  select(-depths_to_interpolate)
+
+
+#join phytos data to weekly timeframe
+#phytos_weekly <- weekly_dates|>
+#  left_join(phytos_datesummarised, by = c("Year", "Week"))|>
+#  select(-CastID)#this isn't correct anymore because of the summary 
+
+#so that we are only interpolating within the weeks that we have data available for 
+weeks_to_interpolate <- phytos_datesummarised %>%
+  group_by(Year) %>%
+  summarise(
+    weeks_to_interpolate = list(seq(min(Week, na.rm = TRUE), max(Week, na.rm = TRUE), by = 1)),
+    .groups = "drop"
+  ) %>%
+  unnest(weeks_to_interpolate) # Expand the weeks into rows
+
+# Perform interpolation using the generated weeks
+#this is absolutely not right because i joined the weeks weirdly
+phytos_yearlyinterpolation <- phytos_datesummarised %>%
+  group_by(Year) %>%
+  left_join(weeks_to_interpolate, by = "Year", relationship = "many-to-many") %>% # Join with unique weeks_to_interpolate
+  group_by(Year) %>% # Group by Year and Depth_m
+  mutate(
+    interp_TotalConc_ugL = if (sum(!is.na(interp_TotalConc_ugL)) >= 2) {
+      tryCatch(
+        zoo::na.approx(
+          interp_TotalConc_ugL,
+          x = Week, # Existing weeks
+          xout = weeks_to_interpolate, # New interpolated weeks
+          na.rm = FALSE
+        ),
+        error = function(e) rep(NA, length(weeks_to_interpolate)) # Return all NAs if an error occurs
+      )
+    } else {
+      rep(NA, length(weeks_to_interpolate)) # Return all NAs if fewer than 2 non-NA values
+    }
+  ) %>%
+  ungroup()
+
+####old code####
 DCM_BVRdata <- phytos %>%
   group_by(CastID) %>%
-  fill(Bluegreens_DCM_conc, .direction = "downup")|>
-  fill(Bluegreens_DCM_depth, .direction = "downup")|>
+  mutate(Totals_DCM_conc = max(TotalConc_ugL, na.rm = TRUE))|> #concentration of totals at totals DCM
+  mutate(Totals_DCM_depth = ifelse(TotalConc_ugL == Totals_DCM_conc, Depth_m, NA_real_))|>
+  fill(Totals_DCM_conc, .direction = "downup")|>
+  fill(Totals_DCM_depth, .direction = "downup")|>
   ungroup()%>%
   mutate(DOY = yday(DateTime))%>%
   mutate(Date  = as_date(DateTime)) |> 
   select(Date, DateTime, CastID, Depth_m, Bluegreens_DCM_conc, Bluegreens_DCM_depth, Bluegreens_ugL, TotalConc_ugL,  Temp_C)
+
+
+
 
 #### metals  ####
 {
