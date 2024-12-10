@@ -132,12 +132,12 @@ phytos_waterlevel<- phytos|>
 depths_to_interpolate <- phytos_waterlevel %>%
   group_by(CastID) %>%
   summarise(
-    depths_to_interpolate = list(seq(0, max(Depth_m, na.rm = TRUE), by = 0.2)),
+    depths_to_interpolate = list(seq(0, 10, by = 0.2)),
     .groups = "drop"
   ) %>%
   unnest(depths_to_interpolate) # Expand the depths into rows
 
-# Join the interpolated depths with the original dataset
+# Join the interpolated depths with the original data
 phytos_castinterpolated <- depths_to_interpolate %>%
   left_join(phytos_waterlevel, by = c("CastID")) %>% # Join by CastID first
   group_by(CastID) %>%
@@ -201,16 +201,16 @@ phytos_datesummarised <- phytos_castsummarised|>
 weeks_to_interpolate <- phytos_datesummarised %>%
   group_by(Year) %>%
   summarise(
-    weeks_to_interpolate = list(seq(min(Week, na.rm = TRUE), max(Week, na.rm = TRUE), by = 1)),
+    Week = list(seq(min(Week, na.rm = TRUE), max(Week, na.rm = TRUE), by = 1)),
     .groups = "drop"
   ) %>%
-  unnest(weeks_to_interpolate) # Expand the weeks into rows
+  unnest(Week) # Expand the weeks into rows
 
 # Perform interpolation using the generated weeks
 #this is absolutely not right because i joined the weeks weirdly
 phytos_yearlyinterpolation <- phytos_datesummarised %>%
   group_by(Year) %>%
-  left_join(weeks_to_interpolate, by = "Year", relationship = "many-to-many") %>% # Join with unique weeks_to_interpolate
+  left_join(weeks_to_interpolate, by = c("Year", "Week")) %>% # Join with unique weeks_to_interpolate
   group_by(Year) %>% # Group by Year and Depth_m
   mutate(
     interp_TotalConc_ugL = if (sum(!is.na(interp_TotalConc_ugL)) >= 2) {
@@ -242,6 +242,10 @@ DCM_BVRdata <- phytos %>%
   select(Date, DateTime, CastID, Depth_m, Bluegreens_DCM_conc, Bluegreens_DCM_depth, Bluegreens_ugL, TotalConc_ugL,  Temp_C)
 
 
+
+####checking chla for 2020 early spring####
+CTDcheck<- CTD|>
+  filter(year(DateTime) == 2020, Reservoir == "BVR", Site == 50)
 
 
 #### metals  ####
