@@ -68,6 +68,8 @@ phytos <- current_df %>%
   mutate(Year = year(Date))|>
   mutate(DOY = yday(Date))
 
+write.csv(phytos,"./phytos.csv",row.names = FALSE)
+
 #add water level to data frame to use as the max depth for creating sequence of depths to interpolate each cast to
 ####Waterlevel####
 wtrlvl <- wtrlvl |> 
