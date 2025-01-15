@@ -6,6 +6,10 @@
 
 phytos <- read.csv("./phytos.csv")
 
+pacman::p_load(tidyverse, lubridate, akima, reshape2, 
+               gridExtra, grid, colorRamps, RColorBrewer, rLakeAnalyzer,
+               reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes)
+
 
 
 #need to change these values to reflect Bluegreens not just chla (which it currently is)
@@ -46,8 +50,7 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
   fp <- fp_data %>%
     filter(year(DateTime) == year) %>%
     select(CastID, DateTime, Depth_m, {{z}})
-    
-  
+
   #slice by depth for each reservoir
     depths = seq(0.1, 10, by = 0.3)
     df.final<-data.frame()
@@ -70,6 +73,10 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
   # Convert to DOY
   fp_new$DOY <- yday(fp_new$DateTime)
   
+  #what about this:
+  fp_new[[z]] <- ifelse(fp_new[[z]]> max_legend_value, max_legend_value, fp_new[[z]])
+  
+  
   #trying to address error in missing values and Infs here!!!!!
   fp_new <- fp_new|>
     filter(!is.na(DOY) & !is.na(Depth_m) & !is.na(fp_new[[z]]) &
@@ -90,7 +97,7 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
     scale_y_reverse(expand = c(0,0))+
     scale_x_continuous(expand = c(0, 0), breaks = seq(1, 366, by = 30), 
                        labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
-    scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +
+    scale_fill_gradientn(colours = blue2green2red(60), na.value = "grey", limits = c(NA, max_legend_value)) +
     labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
     theme_bw()+
     theme(
@@ -106,22 +113,21 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
 #### flora ####
 {
   
-  b1 <- flora_heatmap(fp_data = phytos, year = 2014, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b2 <- flora_heatmap(fp_data = phytos, year = 2015, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b3 <- flora_heatmap(fp_data = phytos, year = 2016, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b4 <- flora_heatmap(fp_data = phytos, year = 2017, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b5 <- flora_heatmap(fp_data = phytos, year = 2018, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b6 <- flora_heatmap(fp_data = phytos, year = 2019, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b7 <- flora_heatmap(fp_data = phytos, year = 2020, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b8 <- flora_heatmap(fp_data = phytos, year = 2021, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b9 <- flora_heatmap(fp_data = phytos, year = 2022, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
-  b10 <- flora_heatmap(fp_data = phytos, year = 2023, site = 50, z = "Bluegreens_ugL", unitz = "ug/L")
+  b1 <- flora_heatmap(fp_data = phytos, year = 2014, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b2 <- flora_heatmap(fp_data = phytos, year = 2015, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b3 <- flora_heatmap(fp_data = phytos, year = 2016, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b4 <- flora_heatmap(fp_data = phytos, year = 2017, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b5 <- flora_heatmap(fp_data = phytos, year = 2018, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b6 <- flora_heatmap(fp_data = phytos, year = 2019, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b7 <- flora_heatmap(fp_data = phytos, year = 2020, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b8 <- flora_heatmap(fp_data = phytos, year = 2021, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b9 <- flora_heatmap(fp_data = phytos, year = 2022, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b10 <- flora_heatmap(fp_data = phytos, year = 2023, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
   
   bluegreens <- plot_grid(
-    b1, b2, b3,
-    b4, b5,b6,
-    b7, b8, b9,
-    ncol = 3
+    b1, b2, b3, b4, b5,
+    b6, b7, b8, b9, b10,
+    ncol = 5
   )
   
   print(bluegreens)
