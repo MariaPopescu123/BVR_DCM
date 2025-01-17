@@ -73,8 +73,8 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
   # Convert to DOY
   fp_new$DOY <- yday(fp_new$DateTime)
   
-  #what about this:
-  fp_new[[z]] <- ifelse(fp_new[[z]]> max_legend_value, max_legend_value, fp_new[[z]])
+  #what about this for if it's past max_legend_value
+ # fp_new[[z]] <- ifelse(fp_new[[z]]> max_legend_value, max_legend_value, fp_new[[z]]) 
   
   
   #trying to address error in missing values and Infs here!!!!!
@@ -97,7 +97,8 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
     scale_y_reverse(expand = c(0,0))+
     scale_x_continuous(expand = c(0, 0), breaks = seq(1, 366, by = 30), 
                        labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
-    scale_fill_gradientn(colours = blue2green2red(60), na.value = "grey", limits = c(NA, max_legend_value)) +
+    scale_fill_gradientn(colours = blue2green2red(60), na.value = "grey", limits = c(NA, max_legend_value), oob = scales::squish  # Ensure values are squished into the defined range maybe remove oob stuff if needed
+    ) +
     labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
     theme_bw()+
     theme(
