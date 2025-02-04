@@ -3,7 +3,7 @@
 
 pacman::p_load(tidyverse, lubridate, akima, reshape2, 
                gridExtra, grid, colorRamps, RColorBrewer, rLakeAnalyzer,
-               reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes)
+               reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes, splines)
 
 #### Loading Data  ####
 
@@ -54,7 +54,21 @@ weekly_dates <- data.frame(
   Date_fake = seq.Date(from = start_date, to = end_date, by = "week")
 ) %>%
   mutate(Year = year(Date_fake),
-         Week = week(Date_fake))
+         Week = week(Date_fake))|>
+  mutate(Depth_m = NA)
+
+Depth_fake = seq(0, 13, by = 0.1)
+
+# Expand grid to get each date with each depth
+expanded_dates <- expand_grid(Date_fake = weekly_dates$Date_fake, Depth_m = Depth_fake)
+
+# Add year and week info to the expanded data
+expanded_dates <- expanded_dates %>%
+  mutate(Year = year(Date_fake),
+         Week = week(Date_fake),
+         DOY = yday(Date_fake), 
+         Date = Date_fake)|>
+  select(-Date_fake)
 
 #adding columns with total_conc max and the depth at which it occurs
 phytos <- current_df %>% 
@@ -70,30 +84,31 @@ phytos <- current_df %>%
 
 write.csv(phytos,"./phytos.csv",row.names = FALSE)
 
-#add water level to data frame to use as the max depth for creating sequence of depths to interpolate each cast to
-####Waterlevel####
-wtrlvl <- wtrlvl |> 
-  mutate(Date = as.POSIXct(DateTime))
-
 #list of DOY for interpolation purpose
 DOY_list <- 32:334  # DOYs from February 1 to November 30
 years <- unique(year(wtrlvl$Date))
 DOY_year_ref <- expand.grid(Year = years, DOY = DOY_list)|>
   arrange(Year, DOY)
 
+#add water level to data frame to use as the max depth for creating sequence of depths to interpolate each cast to
+####Waterlevel####
+wtrlvl <- wtrlvl |> 
+  mutate(Date = as.POSIXct(DateTime))
+
 #Add DOY and Year columns to wtrlvl2, then join with DOY_year_ref
 wtrlvl2 <- wtrlvl |>
   mutate(Year = year(Date), DOY = yday(Date))
 
 #join and interpolate WaterLevel_m for each DOY in each year
-wtrlvl2_interpolated <- DOY_year_ref |>
-  left_join(wtrlvl2, by = c("Year" = "Year", "DOY" = "DOY")) |>
-  group_by(Year) |>
+wtrlvl2_interpolated <- DOY_year_ref %>%
+  left_join(wtrlvl2, by = c("Year", "DOY")) %>%
+  group_by(Year) %>%
   mutate(
-    WaterLevel_m = na.approx(WaterLevel_m, x = DOY, na.rm = FALSE)
-  )|>
-  filter(Year > 2013)|>
-  arrange(Year, DOY)
+    WaterLevel_m = zoo::na.spline(WaterLevel_m, x = DOY, na.rm = FALSE)
+  ) %>%
+  filter(Year > 2013) %>%
+  arrange(Year, DOY)|>
+  select(Year, DOY, WaterLevel_m)
 
 #now for past 2020 
 #Add DOY and Year columns to wtrlvl2, then join with DOY_year_ref
@@ -107,44 +122,133 @@ BVRplatform2_interpolated <- DOY_year_ref |>
   left_join(BVRplatform2, by = c("Year" = "Year", "DOY" = "DOY")) |>
   group_by(Year) |>
   mutate(
-    LvlDepth_m_13 = na.approx(LvlDepth_m_13, x = DOY, na.rm = FALSE)
+    LvlDepth_m_13 = zoo::na.spline(LvlDepth_m_13, x = DOY, na.rm = FALSE)
   )|>
   filter(Year > 2019, Site == 50)|>
   arrange(Year, DOY)|>
   select(Year, DOY, DateTime, LvlDepth_m_13)
 
-water_levelsjoined <- DOY_year_ref|>
+water_levelsjoined <- expanded_dates|>
   left_join(BVRplatform2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
   left_join(wtrlvl2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
   filter(Year>2013)
 
 water_levelscoalesced<- water_levelsjoined|>
   mutate(WaterLevel_m = coalesce(LvlDepth_m_13,WaterLevel_m))|>
-  select(Year, DOY, WaterLevel_m)
+  select(Year, DOY, WaterLevel_m)|>
+  group_by(Year, DOY)|>
+  summarise(WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE), .groups = "drop")
 
-phytos_waterlevel<- phytos|>
+water_levels <- expanded_dates|>
+  left_join(water_levelscoalesced, by = c("Year", "DOY"))
+
+ggplot(water_levels, aes(x = Date, y = WaterLevel_m))+
+  geom_line()
+
+
+
+
+phytos_waterlevel<- water_levels|>
   mutate(DOY = yday(Date))|>
   mutate(Year = year(Date))|>
-  left_join(water_levelscoalesced, by = c("DOY", "Year"), relationship = "many-to-many" )
+  bind_rows(phytos)|>
+  select(Depth_m, Year, Week, DOY, Date, WaterLevel_m, TotalConc_ugL, )|>
+  group_by(Year, DOY, Week, WaterLevel_m, Date, Depth_m)|>
+  summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
+  ungroup()
+
+ggplot(phytos_waterlevel, aes(x = Date, y = WaterLevel_m))+
+  geom_line()
 
 
 ####interpolating phytos across depths and across time####
+#not this is not working
+
+#I had this here for a previous thing and its not working
+depths_to_interpolate <- phytos_waterlevel %>%
+  group_by(Date) %>%
+  summarise(
+    Depth_m = list(seq(0, max(Depth_m), by = 0.2)),
+    .groups = "drop"
+  ) %>%
+  unnest(Depth_m) # Expand the depths into rows
+
+# Assuming phytos_waterlevel (fp) contains your data frame
+depths = seq(0.1, 10, by = 0.3)  # Depths to interpolate
+df.final <- data.frame()  # Initialize an empty dataframe to hold results
+fp<- phytos_waterlevel
+z <- "TotalConc_ugL"
+
+# Loop over the depths to extract corresponding data
+for (i in 1:length(depths)) {
+  
+  # Group by 'CastID' and select the row with the closest depth
+  fp_layer <- fp %>% 
+    group_by(Date) %>% 
+    slice(which.min(abs(as.numeric(Depth_m) - depths[i]))) 
+  
+  # Bind each layer together into the final dataframe
+  df.final <- bind_rows(df.final, fp_layer)
+}
+
+# Wrangle the final dataframe for plotting
+# Re-arrange by DateTime
+fp_new <- arrange(df.final, Date)
+
+# Round depth values to the nearest 0.1 (or other rounding rule as needed)
+fp_new$Depth_m <- round(as.numeric(fp_new$Depth_m), digits = 1)  # Rounded to nearest 0.1
+
+# Convert DateTime to Day of Year (DOY)
+fp_new$DOY <- yday(fp_new$DateTime)
+
+# Remove rows where TotalConc_ugL is NA or infinite
+fp_new_clean <- fp_new %>%
+  filter(!is.na(TotalConc_ugL) & !is.infinite(TotalConc_ugL))
+
+# Interpolate the TotalConc_ugL based on DOY and Depth_m
+interp <- interp(x = fp_new_clean$DOY, 
+                 y = fp_new_clean$Depth_m, 
+                 z = unlist(fp_new_clean$TotalConc_ugL),  # Use cleaned data for z
+                 xo = seq(min(fp_new_clean$DOY), max(fp_new_clean$DOY), by = 0.1),  # Interpolating along DOY
+                 yo = seq(min(fp_new_clean$Depth_m), max(fp_new_clean$Depth_m), by = 0.01),  # Interpolating along Depth_m
+                 extrap = TRUE, linear = TRUE, duplicate = "strip")
+
+# Convert the interpolated results to a dataframe
+interp <- interp2xyz(interp, data.frame = TRUE)
+# You can now plot 'interp' using ggplot or other plotting functions
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####DIFFERENT ATTEMPT COME BACK LATE####
 #first group by cast an interpolate to the nearest .2m
 # Create a sequence of depths for each CastID
 depths_to_interpolate <- phytos_waterlevel %>%
   group_by(CastID) %>%
   summarise(
-    depths_to_interpolate = list(seq(0, 10, by = 0.2)),
+    Depth_m = list(seq(0, max(Depth_m), by = 0.2)),
     .groups = "drop"
   ) %>%
-  unnest(depths_to_interpolate) # Expand the depths into rows
+  unnest(Depth_m) # Expand the depths into rows
 
 # Join the interpolated depths with the original data
 phytos_castinterpolated <- depths_to_interpolate %>%
-  left_join(phytos_waterlevel, by = c("CastID")) %>% # Join by CastID first
+  full_join(phytos_waterlevel, by = c("CastID")) %>% # Join by CastID first
   group_by(CastID) %>%
   mutate(
-    interp_TotalConc_ugL = zoo::na.approx(
+    interp_TotalConc_ugL = zoo::na.spline(
       TotalConc_ugL,
       x = Depth_m, # Existing depths
       xout = depths_to_interpolate, # New interpolated depths
@@ -360,6 +464,7 @@ ysi_profiles_filtered <- ysi_profiles |>
 
 CTDfiltered <- CTD|> #flag 2, instrument malfunction. haven't removed flags yet
   filter(Reservoir == "BVR", Site == 50)|>
+  filter(!if_any(starts_with("Flag"), ~. == 68))|>
   mutate(Date = as_date(DateTime))|>
   group_by(Date, Depth_m)|>
   summarise(DO_mgL = mean(DO_mgL, na.rm = TRUE),
