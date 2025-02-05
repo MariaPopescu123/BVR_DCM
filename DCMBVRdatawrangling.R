@@ -82,7 +82,38 @@ phytos <- current_df %>%
   mutate(Year = year(Date))|>
   mutate(DOY = yday(Date))
 
-write.csv(phytos,"./phytos.csv",row.names = FALSE)
+
+####flora instrument data availability####
+
+#days on the x axis, years on the y axis
+plot_dat <- phytos %>%
+  filter(!is.na(TotalConc_ugL)) %>%
+  mutate(Year = year(Date), 
+         DayOfYear = yday(Date))|> # Extract year and day of the year
+  select(Date, Year, DayOfYear, TotalConc_ugL, Depth_m)
+
+# Find the maximum Bluegreens_ugL value for each year
+max_totals_per_year <- plot_dat %>%
+  group_by(year(Date)) %>%
+  slice(which.max(TotalConc_ugL)) %>%
+  ungroup()
+
+# Plot: x-axis is DayOfYear, y-axis is Year, with a line and highlighted points
+ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
+  geom_line() +  # Line for each year
+  geom_point() +  # Data points
+  geom_point(data = max_totals_per_year, aes(x = DayOfYear, y = as.factor(Year)), 
+             color = "red", size = 3) +  # Highlight max points in red
+  geom_text(data = max_totals_per_year, 
+            aes(x = DayOfYear, y = as.factor(Year), 
+                label = paste0("Max: ", round(TotalConc_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
+            vjust = 1.5, hjust = 0.5, color = "black", size = 3) +  # Smaller text and place below the point
+  theme_bw() +
+  labs(x = "Day of Year", y = "Year", title = "Fluoroprobe Data Availability") +
+  scale_x_continuous(breaks = seq(1, 365, by = 30), limits = c(1, 365)) +  # Set x-axis limits and breaks
+  theme(panel.grid.minor = element_blank())+  # Optional: remove minor grid lines
+  geom_vline(xintercept = 133, linetype = "dashed", color = "red") +  # Vertical dashed line at DayOfYear 133
+  geom_vline(xintercept = 286, linetype = "dashed", color = "red")  # Vertical dashed line at DayOfYear 286
 
 #list of DOY for interpolation purpose
 DOY_list <- 32:334  # DOYs from February 1 to November 30
@@ -147,10 +178,9 @@ water_levels <- expanded_dates|>
 ggplot(water_levels, aes(x = Date, y = WaterLevel_m))+
   geom_line()
 
-#moving forward to interpolate data:
-#1. first bind it to expanded_dates (this has all the depths I want
-#to interpolate to and all the weeks I want to interpolate to)
-#2. then add it to the last competed dataframe (in this case water_levels)
+####phyto interp####
+#1. first bind it to expanded_dates (this has all the depths and all the weeks I want to interpolate to)
+#2. then add it to the last completed dataframe (in this case water_levels)
 
 #maybe just choose one cast per day come back to this later
 phytos_daily_summarise <- phytos|>
@@ -221,7 +251,7 @@ phytos_interpolated <- expanded_dates %>%
 looking<- phytos_interpolated|>
   filter(!is.na(TotalConc_ugL))
 
-####visualizing data availability####
+####interp_phyto data availability####
 
 #days on the x axis, years on the y axis
 plot_dat <- phytos_interpolated %>%
@@ -230,7 +260,7 @@ plot_dat <- phytos_interpolated %>%
          DayOfYear = yday(Date))|> # Extract year and day of the year
   select(Date, Year, DayOfYear, TotalConc_ugL, Depth_m)
 
-# Find the maximum Bluegreens_ugL value for each year
+# Find the maximum TotalConc_ugL value for each year
 max_Totals_per_year <- plot_dat %>%
   group_by(year(Date)) %>%
   slice(which.max(TotalConc_ugL)) %>%
@@ -249,35 +279,22 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   theme_bw() +
   labs(x = "Day of Year", y = "Year", title = "Interpolated Data Distribution") +
   scale_x_continuous(breaks = seq(1, 365, by = 30), limits = c(1, 365)) +  # Set x-axis limits and breaks
-  theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
+  theme(panel.grid.minor = element_blank())+  # Optional: remove minor grid lines
+  geom_vline(xintercept = 133, linetype = "dashed", color = "red") +  # Vertical dashed line at DayOfYear 133
+  geom_vline(xintercept = 286, linetype = "dashed", color = "red")  # Vertical dashed line at DayOfYear 286
 
-
-
-
-#some of the casts aren't complete (for example: cast 603 and 604 though they are clearly the same day)
-
-
-####old code####
-DCM_BVRdata <- phytos %>%
-  group_by(CastID) %>%
+#add it to the water_levels 
+phytos_waterlevel<- water_levels|>
+  left_join(phytos_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))|>
+  group_by(Week) %>%
   mutate(Totals_DCM_conc = max(TotalConc_ugL, na.rm = TRUE))|> #concentration of totals at totals DCM
   mutate(Totals_DCM_depth = ifelse(TotalConc_ugL == Totals_DCM_conc, Depth_m, NA_real_))|>
   fill(Totals_DCM_conc, .direction = "downup")|>
   fill(Totals_DCM_depth, .direction = "downup")|>
-  ungroup()%>%
-  mutate(DOY = yday(DateTime))%>%
-  mutate(Date  = as_date(DateTime)) |> 
-  select(Date, DateTime, CastID, Depth_m, Bluegreens_DCM_conc, Bluegreens_DCM_depth, Bluegreens_ugL, TotalConc_ugL,  Temp_C)
-
-
-
-####checking chla for 2020 early spring####
-CTDcheck<- CTD|>
-  filter(year(DateTime) == 2020, Reservoir == "BVR", Site == 50)
+  ungroup()
 
 
 #### metals  ####
-{
 metalsdf_filtered <- metalsdf |>
   filter(Reservoir == "BVR", Site == 50)|>
   mutate(Date = as_date(DateTime))|>
@@ -294,7 +311,101 @@ metalsdf_filtered <- metalsdf |>
             TBa_mgL = mean(TBa_mgL, na.rm = TRUE))
 
 
-interpolated_data <- DCM_BVRdata |> 
+variables_to_interpolate <- c("SFe_mgL", "TFe_mgL", "SMn_mgL",
+                              "SCa_mgL", "TCa_mgL", "TCu_mgL",
+                              "SCu_mgL", "SBa_mgL", "TBa_mgL")
+
+for var in variables_to_interpolate{
+  var_daily_summarise <- metalsdf_filtered|>
+    mutate(DOY = yday(Date))|>
+    mutate(Year = year(Date))|>
+    bind_rows(phytos)|>
+    select(Depth_m, Year, Week, DOY, Date, var)|>
+    group_by(Year, DOY, Week, Date, Depth_m)|>
+    summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
+    ungroup()
+  
+  #get each day's depths to be to the 10th (ie. instead of 1.67, 1.69, 2.32 just 1.7 and 2.3)
+  phytos_depth_rounded <- phytos_daily_summarise|>
+    group_by(Date)|>
+    mutate(Depth_m = round(Depth_m, digits = 1))|>
+    ungroup()|>
+    group_by(Date, Depth_m)|>
+    summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
+    ungroup()|>
+    mutate(Year = year(Date))|>
+    mutate(Week = week(Date))#assign weeks to each Date based on which week the date is closest to (this is probably wrong need to come back to this grouping)
+  
+  #group by week and depth_m and summarise (so we have just one set of depths per week)
+  phytos_weekly<- phytos_depth_rounded|>
+    group_by(Year, Week, Depth_m)|>
+    summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")
+  
+  #left join this phytos_weekly to the expanded_dates data frame (which has weeks 1 through 52)
+  
+  phytos_interpolated <- expanded_dates %>%
+    left_join(phytos_weekly, by = c("Depth_m", "Week", "Year")) %>%
+    
+    # Interpolate across depths within each Year and Week
+    group_by(Year, Week) %>%
+    mutate(
+      # Identify the first and last non-NA Depth_m values for interpolation
+      first_valid_depth = min(Depth_m[!is.na(TotalConc_ugL)], na.rm = TRUE),
+      last_valid_depth = max(Depth_m[!is.na(TotalConc_ugL)], na.rm = TRUE),
+      
+      # Filter data to only include Depth_m within the valid range (first and last valid depths)
+      Value_interp_depth = ifelse(
+        Depth_m >= first_valid_depth & Depth_m <= last_valid_depth,
+        zoo::na.approx(TotalConc_ugL, x = Depth_m, na.rm = FALSE),
+        NA_real_
+      )
+    ) %>%
+    ungroup()|>
+    #now across weeks
+    group_by(Year, Depth_m) %>%
+    mutate(
+      # Identify the first and last non-NA Depth_m values for interpolation
+      first_valid_Week = min(Week[!is.na(TotalConc_ugL)], na.rm = TRUE),
+      last_valid_Week = max(Week[!is.na(TotalConc_ugL)], na.rm = TRUE),
+      
+      # Filter data to only include Depth_m within the valid range (first and last valid depths)
+      Value_interp_Week = ifelse(
+        Week >= first_valid_Week & Week <= last_valid_Week,
+        zoo::na.approx(TotalConc_ugL, x = Week, na.rm = FALSE),
+        NA_real_
+      )
+    ) %>%
+    ungroup()|>
+    mutate(interp_phytos = coalesce(Value_interp_depth,Value_interp_Week))|>
+    select(-TotalConc_ugL, -first_valid_depth, -last_valid_depth, -Value_interp_Week,
+           -first_valid_Week, -last_valid_Week, -Value_interp_Week)|>
+    rename(TotalConc_ugL = interp_phytos)#this is now the new interpolated values
+  
+  
+  
+}
+
+
+looking<- phytos_interpolated|>
+  filter(!is.na(TotalConc_ugL))
+
+
+
+{
+metalsdf_filtered <- metalsdf |>
+  filter(Reservoir == "BVR", Site == 50)|>
+  mutate(Date = as_date(DateTime))|>
+  filter(!if_any(starts_with("Flag"), ~. == 68))|>
+  mutate(DOY = yday(Date))|>
+  mutate(Year = year(Date))|>
+  select(Depth_m, Year, Week, DOY, Date, )|>
+  group_by(Year, DOY, Week, Date, Depth_m)|>
+  summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
+  ungroup()
+  
+  
+
+interpolated_data <- expanded_dates |> 
   select(Date, Depth_m) |> 
   distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
   bind_rows(metalsdf_filtered) |> 
@@ -1307,39 +1418,6 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
 
 looking<- final_data0|>
   filter(Date %in% c("2019-06-06"))
-
-
-
-
-####timeframe determination based on flora data availability####
-
-#days on the x axis, years on the y axis
-plot_dat <- final_data0 %>%
-  filter(!is.na(Bluegreens_ugL)) %>%
-  mutate(Year = year(Date), 
-         DayOfYear = yday(Date))|> # Extract year and day of the year
-  select(Date, Year, DayOfYear, Bluegreens_ugL, Depth_m, peak.width, peak.magnitude)
-
-# Find the maximum Bluegreens_ugL value for each year
-max_bluegreen_per_year <- plot_dat %>%
-  group_by(year(Date)) %>%
-  slice(which.max(Bluegreens_ugL)) %>%
-  ungroup()
-
-# Plot: x-axis is DayOfYear, y-axis is Year, with a line and highlighted points
-ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
-  geom_line() +  # Line for each year
-  geom_point() +  # Data points
-  geom_point(data = max_bluegreen_per_year, aes(x = DayOfYear, y = as.factor(Year)), 
-             color = "red", size = 3) +  # Highlight max points in red
-  geom_text(data = max_bluegreen_per_year, 
-            aes(x = DayOfYear, y = as.factor(Year), 
-                label = paste0("Max: ", round(Bluegreens_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
-            vjust = 1.5, hjust = 0.5, color = "black", size = 3) +  # Smaller text and place below the point
-  theme_bw() +
-  labs(x = "Day of Year", y = "Year", title = "Fluoroprobe Data Availability") +
-  scale_x_continuous(breaks = seq(1, 365, by = 30), limits = c(1, 365)) +  # Set x-axis limits and breaks
-  theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
 
 ####DCM depth every year####
 # Find the maximum Bluegreens_ugL value for each day
