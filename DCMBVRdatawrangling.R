@@ -1,9 +1,14 @@
+#### section to start editing: 2/7 Adding PAR, DO, DOsat_percent, cond, ORP, pH, temp ####
+
 # Maria DCM BVR
 #data includes chlorophyll maxima, PAR, secchi, light attenuation, metals, ghgs, nutrients
 
 pacman::p_load(tidyverse, lubridate, akima, reshape2, pracma,
                gridExtra, grid, colorRamps, RColorBrewer, rLakeAnalyzer,
                reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes, splines)
+
+source("interpolate_variable.R")
+
 
 #### Loading Data  ####
 
@@ -115,6 +120,10 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   geom_vline(xintercept = 133, linetype = "dashed", color = "red") +  # Vertical dashed line at DayOfYear 133
   geom_vline(xintercept = 286, linetype = "dashed", color = "red")  # Vertical dashed line at DayOfYear 286
 
+#see that the data is dispersed at random intervals (and also different depths)
+#because of this going to interpolate and join this to a weekly dataframe that has all the same depths
+
+
 #list of DOY for interpolation purpose
 DOY_list <- 32:334  # DOYs from February 1 to November 30
 years <- unique(year(wtrlvl$Date))
@@ -182,74 +191,12 @@ ggplot(water_levels, aes(x = Date, y = WaterLevel_m))+
 #1. first bind it to expanded_dates (this has all the depths and all the weeks I want to interpolate to)
 #2. then add it to the last completed dataframe (in this case water_levels)
 
-#maybe just choose one cast per day come back to this later
-phytos_daily_summarise <- phytos|>
-  mutate(DOY = yday(Date))|>
-  mutate(Year = year(Date))|>
-  bind_rows(phytos)|>
-  select(Depth_m, Year, Week, DOY, Date, TotalConc_ugL, )|>
-  group_by(Year, DOY, Week, Date, Depth_m)|>
-  summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
-  ungroup()
+#testing interpolation funciton on phytos
+variables <- ("TotalConc_ugL")
+phytos_interpolated <- interpolate_variable(phytos, variables, expanded_dates)
 
-#get each day's depths to be to the 10th (ie. instead of 1.67, 1.69, 2.32 just 1.7 and 2.3)
-phytos_depth_rounded <- phytos_daily_summarise|>
-  group_by(Date)|>
-  mutate(Depth_m = round(Depth_m, digits = 1))|>
-  ungroup()|>
-  group_by(Date, Depth_m)|>
-  summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
-  ungroup()|>
-  mutate(Year = year(Date))|>
-  mutate(Week = week(Date))#assign weeks to each Date based on which week the date is closest to (this is probably wrong need to come back to this grouping)
-
-#group by week and depth_m and summarise (so we have just one set of depths per week)
-phytos_weekly<- phytos_depth_rounded|>
-  group_by(Year, Week, Depth_m)|>
-  summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")
-
-#left join this phytos_weekly to the expanded_dates data frame (which has weeks 1 through 52)
-
-phytos_interpolated <- expanded_dates %>%
-  left_join(phytos_weekly, by = c("Depth_m", "Week", "Year")) %>%
-  
-  # Interpolate across depths within each Year and Week
-  group_by(Year, Week) %>%
-  mutate(
-    # Identify the first and last non-NA Depth_m values for interpolation
-    first_valid_depth = min(Depth_m[!is.na(TotalConc_ugL)], na.rm = TRUE),
-    last_valid_depth = max(Depth_m[!is.na(TotalConc_ugL)], na.rm = TRUE),
-    
-    # Filter data to only include Depth_m within the valid range (first and last valid depths)
-    Value_interp_depth = ifelse(
-      Depth_m >= first_valid_depth & Depth_m <= last_valid_depth,
-      zoo::na.approx(TotalConc_ugL, x = Depth_m, na.rm = FALSE),
-      NA_real_
-    )
-  ) %>%
-  ungroup()|>
-#now across weeks
-  group_by(Year, Depth_m) %>%
-  mutate(
-    # Identify the first and last non-NA Depth_m values for interpolation
-    first_valid_Week = min(Week[!is.na(TotalConc_ugL)], na.rm = TRUE),
-    last_valid_Week = max(Week[!is.na(TotalConc_ugL)], na.rm = TRUE),
-    
-    # Filter data to only include Depth_m within the valid range (first and last valid depths)
-    Value_interp_Week = ifelse(
-      Week >= first_valid_Week & Week <= last_valid_Week,
-      zoo::na.approx(TotalConc_ugL, x = Week, na.rm = FALSE),
-      NA_real_
-    )
-  ) %>%
-  ungroup()|>
-  mutate(interp_phytos = coalesce(Value_interp_depth,Value_interp_Week))|>
-  select(-TotalConc_ugL, -first_valid_depth, -last_valid_depth, -Value_interp_Week,
-         -first_valid_Week, -last_valid_Week, -Value_interp_Week)|>
-  rename(TotalConc_ugL = interp_phytos)#this is now the new interpolated values
-
-looking<- phytos_interpolated|>
-  filter(!is.na(TotalConc_ugL))
+# looking<- phytos_interpolated|>
+#  filter(!is.na(TotalConc_ugL))
 
 ####interp_phyto data availability####
 
@@ -286,7 +233,7 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
 #add it to the water_levels 
 phytos_waterlevel<- water_levels|>
   left_join(phytos_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))|>
-  group_by(Week) %>%
+  group_by(Year, Week) %>%
   mutate(Totals_DCM_conc = max(TotalConc_ugL, na.rm = TRUE))|> #concentration of totals at totals DCM
   mutate(Totals_DCM_depth = ifelse(TotalConc_ugL == Totals_DCM_conc, Depth_m, NA_real_))|>
   fill(Totals_DCM_conc, .direction = "downup")|>
@@ -298,163 +245,33 @@ phytos_waterlevel<- water_levels|>
 metalsdf_filtered <- metalsdf |>
   filter(Reservoir == "BVR", Site == 50)|>
   mutate(Date = as_date(DateTime))|>
-  filter(!if_any(starts_with("Flag"), ~. == 68))|>
-  group_by(Depth_m, Date)|>
-  summarise(SFe_mgL = mean(SFe_mgL, na.rm = TRUE),
-            TFe_mgL = mean(TFe_mgL, na.rm = TRUE),
-            SMn_mgL = mean(SMn_mgL, na.rm = TRUE), 
-            SCa_mgL = mean(SCa_mgL, na.rm = TRUE),
-            TCa_mgL = mean(TCa_mgL, na.rm = TRUE),
-            TCu_mgL = mean(TCu_mgL, na.rm = TRUE),
-            SCu_mgL = mean(SCu_mgL, na.rm = TRUE),
-            SBa_mgL = mean(SBa_mgL, na.rm = TRUE), 
-            TBa_mgL = mean(TBa_mgL, na.rm = TRUE))
+  filter(!if_any(starts_with("Flag"), ~. == 68))
 
+variables <- c("SFe_mgL", "TFe_mgL", "SMn_mgL", "SCa_mgL",
+               "TCa_mgL", "TCu_mgL", "SCu_mgL", "SBa_mgL", "TBa_mgL")
 
-variables_to_interpolate <- c("SFe_mgL", "TFe_mgL", "SMn_mgL",
-                              "SCa_mgL", "TCa_mgL", "TCu_mgL",
-                              "SCu_mgL", "SBa_mgL", "TBa_mgL")
+metals_interpolated <- interpolate_variable(metalsdf_filtered, variables, expanded_dates)
 
-for var in variables_to_interpolate{
-  var_daily_summarise <- metalsdf_filtered|>
-    mutate(DOY = yday(Date))|>
-    mutate(Year = year(Date))|>
-    bind_rows(phytos)|>
-    select(Depth_m, Year, Week, DOY, Date, var)|>
-    group_by(Year, DOY, Week, Date, Depth_m)|>
-    summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
-    ungroup()
-  
-  #get each day's depths to be to the 10th (ie. instead of 1.67, 1.69, 2.32 just 1.7 and 2.3)
-  phytos_depth_rounded <- phytos_daily_summarise|>
-    group_by(Date)|>
-    mutate(Depth_m = round(Depth_m, digits = 1))|>
-    ungroup()|>
-    group_by(Date, Depth_m)|>
-    summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
-    ungroup()|>
-    mutate(Year = year(Date))|>
-    mutate(Week = week(Date))#assign weeks to each Date based on which week the date is closest to (this is probably wrong need to come back to this grouping)
-  
-  #group by week and depth_m and summarise (so we have just one set of depths per week)
-  phytos_weekly<- phytos_depth_rounded|>
-    group_by(Year, Week, Depth_m)|>
-    summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")
-  
-  #left join this phytos_weekly to the expanded_dates data frame (which has weeks 1 through 52)
-  
-  phytos_interpolated <- expanded_dates %>%
-    left_join(phytos_weekly, by = c("Depth_m", "Week", "Year")) %>%
-    
-    # Interpolate across depths within each Year and Week
-    group_by(Year, Week) %>%
-    mutate(
-      # Identify the first and last non-NA Depth_m values for interpolation
-      first_valid_depth = min(Depth_m[!is.na(TotalConc_ugL)], na.rm = TRUE),
-      last_valid_depth = max(Depth_m[!is.na(TotalConc_ugL)], na.rm = TRUE),
-      
-      # Filter data to only include Depth_m within the valid range (first and last valid depths)
-      Value_interp_depth = ifelse(
-        Depth_m >= first_valid_depth & Depth_m <= last_valid_depth,
-        zoo::na.approx(TotalConc_ugL, x = Depth_m, na.rm = FALSE),
-        NA_real_
-      )
-    ) %>%
-    ungroup()|>
-    #now across weeks
-    group_by(Year, Depth_m) %>%
-    mutate(
-      # Identify the first and last non-NA Depth_m values for interpolation
-      first_valid_Week = min(Week[!is.na(TotalConc_ugL)], na.rm = TRUE),
-      last_valid_Week = max(Week[!is.na(TotalConc_ugL)], na.rm = TRUE),
-      
-      # Filter data to only include Depth_m within the valid range (first and last valid depths)
-      Value_interp_Week = ifelse(
-        Week >= first_valid_Week & Week <= last_valid_Week,
-        zoo::na.approx(TotalConc_ugL, x = Week, na.rm = FALSE),
-        NA_real_
-      )
-    ) %>%
-    ungroup()|>
-    mutate(interp_phytos = coalesce(Value_interp_depth,Value_interp_Week))|>
-    select(-TotalConc_ugL, -first_valid_depth, -last_valid_depth, -Value_interp_Week,
-           -first_valid_Week, -last_valid_Week, -Value_interp_Week)|>
-    rename(TotalConc_ugL = interp_phytos)#this is now the new interpolated values
-  
-  
-  
-}
-
-
-looking<- phytos_interpolated|>
-  filter(!is.na(TotalConc_ugL))
-
-
-
-{
-metalsdf_filtered <- metalsdf |>
-  filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  filter(!if_any(starts_with("Flag"), ~. == 68))|>
-  mutate(DOY = yday(Date))|>
-  mutate(Year = year(Date))|>
-  select(Depth_m, Year, Week, DOY, Date, )|>
-  group_by(Year, DOY, Week, Date, Depth_m)|>
-  summarise(TotalConc_ugL = mean(TotalConc_ugL, na.rm = TRUE), .groups = "drop")|>
-  ungroup()
-  
-  
-
-interpolated_data <- expanded_dates |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(metalsdf_filtered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(interp_SFe_mgL = zoo::na.approx(SFe_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_TFe_mgL = zoo::na.approx(TFe_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_SMn_mgL = zoo::na.approx(SMn_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_SCa_mgL = zoo::na.approx(SCa_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_TCa_mgL = zoo::na.approx(TCa_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_TCu_mgL = zoo::na.approx(TCu_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_SCu_mgL = zoo::na.approx(SCu_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_SBa_mgL = zoo::na.approx(SBa_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_TBa_mgL = zoo::na.approx(TBa_mgL, x = Depth_m, na.rm = FALSE)) |>
-  ungroup() # Ensure the grouping is removed for the final merge
-
-#Merge with DCM BVR data and keep only relevant rows
-DCM_BVRwmetals <- DCM_BVRdata %>%
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  select(-SFe_mgL, -TFe_mgL, -SMn_mgL, -SCa_mgL, -TCa_mgL, -TCu_mgL, -SCu_mgL, -SBa_mgL, -TBa_mgL) %>% # Remove unnecessary columns
-  filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in DCMdata
-}
+phytos_wtrlvl_metals <- phytos_waterlevel|>
+  left_join(metals_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
 
 #### ghgs  ####
-{
 ghgs_filtered <- ghgs |>
   filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
+  mutate(DateTime = as_date(DateTime))|>
+  group_by(DateTime, Depth_m)|>
   summarise(CO2_umolL = mean(CO2_umolL, na.rm = TRUE)
-            , CH4_umolL = mean(CH4_umolL, na.rm = TRUE))
+            , CH4_umolL = mean(CH4_umolL, na.rm = TRUE))|>
+  ungroup()|>
+  mutate(Reservoir = "BVR", 
+         Site = 50)
 
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(ghgs_filtered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(interp_CO2_umolL = zoo::na.approx(CO2_umolL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_CH4_umolL = zoo::na.approx(CH4_umolL, x = Depth_m, na.rm = FALSE)) |>
-  ungroup() # Ensure the grouping is removed for the final merge
+variables <- c("CO2_umolL", "CH4_umolL")
 
-DCM_BVRwmetalsghgs <- DCM_BVRwmetals |>
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many")|>
-  select(-CO2_umolL, -CH4_umolL)|>
-  filter(Depth_m %in% DCM_BVRwmetals$Depth_m)|> #filtering to make sure only the values with the depths in fluoroprobe data are brought in
-  mutate(DCM = (Bluegreens_DCM_depth==Depth_m))|>
-  relocate(DCM, .before = 8)
-}
+ghgs_interpolated <- interpolate_variable(ghgs_filtered, variables, expanded_dates)
+
+phytos_wtrlvl_metals_ghgs <- phytos_wtrlvl_metals|>
+  left_join(ghgs_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
 
 #### secchi and attenuation coefficient  ####
 {
@@ -467,7 +284,7 @@ BVRsecchi <- secchi |>
   filter(Reservoir == "BVR" & Site == 50)
 
 # Adding Secchi
-DCM_BVRwmetalsghgssecchi <- DCM_BVRwmetalsghgs|>
+pwmgs <- phytos_wtrlvl_metals_ghgs|> #first letter of each dataframe for traceability
   left_join(BVRsecchi, by = c("Date"))|>
   group_by(Date)|>
   fill(Secchi_m, .direction = "updown")|>
@@ -475,7 +292,7 @@ DCM_BVRwmetalsghgssecchi <- DCM_BVRwmetalsghgs|>
 
 # Calculating K_d and light availability from secchi
 
-DCM_BVRwmetalsghgssecchilight <- DCM_BVRwmetalsghgssecchi |>
+pwmgsl <- pwmgs |> #add light
   mutate(sec_K_d = 1.7/Secchi_m) |>
   mutate(light_availability_fraction = exp(-sec_K_d * Depth_m)) |>
   mutate(sec_LAP = light_availability_fraction * 100) #light availability percentage calculated from secchi

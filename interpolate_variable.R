@@ -1,5 +1,5 @@
 #function for interpolating variables in a data frame
-#work in progress
+#make sure to clean up data before hand. remove flags 
 
 
 interpolate_variable <- function(data, variable_list, expanded_dates) {
