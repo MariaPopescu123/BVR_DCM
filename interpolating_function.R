@@ -12,12 +12,18 @@ interpolate_variable <- function(data, variable_list, expanded_dates) {
     stop("Error: `expanded_dates` is required but not provided.")#do i need this
   }
   
-  data <- data |> #changing this temporarily 
+  data <- data |> 
     filter(Reservoir == "BVR", Site == 50) |>
-    mutate(Date = as_date(DateTime),
-           Week = week(Date),
-           Year = year(Date),
-           DOY = yday(Date))
+    mutate(Date = if ("DateTime" %in% colnames(data)) {
+      as_date(DateTime)
+    } else if ("Date" %in% colnames(data)) {
+      as_date(Date)
+    } else {
+      NA_Date_
+    },
+    Week = week(Date),
+    Year = year(Date),
+    DOY = yday(Date))
   
   interpolated_results <- list()  # Store results for each variable
   

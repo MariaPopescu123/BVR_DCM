@@ -3,20 +3,28 @@
 # Maria DCM BVR
 #data includes chlorophyll maxima, PAR, secchi, light attenuation, metals, ghgs, nutrients
 
+#to do:
+#met data
+
+
 pacman::p_load(tidyverse, lubridate, akima, reshape2, pracma,
                gridExtra, grid, colorRamps, RColorBrewer, rLakeAnalyzer,
                reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes, splines)
 
 source("interpolate_variable.R")
+source("data_availability_function.R")
 
+
+#need to update links for all the data now
 
 #### Loading Data  ####
 
 #ctd data https://portal.edirepository.org/nis/metadataviewer?packageid=edi.200.14
 CTD <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/200/14/0432a298a90b2b662f26c46071f66b8a")
 
-#flora data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.272.8
-current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/8/0359840d24028e6522f8998bd41b544e")
+#flora data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.272.9
+#updated 2025
+current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/9/f246b36c591a888cc70ebc87a5abbcb7")
 
 # metals data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.455.8
 metalsdf <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/455/8/9c8c61b003923f4f03ebfe55cea8bbfd")
@@ -31,8 +39,9 @@ ghgs <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/551/8/454c11035
 #secchi data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.198.11
 secchiframe <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/11/81f396b3e910d3359907b7264e689052")
 
-#ysi https://portal.edirepository.org/nis/mapbrowse?packageid=edi.198.11
-ysi_profiles <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/11/6e5a0344231de7fcebbe6dc2bed0a1c3")
+#ysi https://portal.edirepository.org/nis/mapbrowse?scope=edi&identifier=198&revision=13
+#updated 2025
+ysi_profiles <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/13/3ee0ddb9f2183ad4d8c955d50d1b8fba")
 
 #data from here https://portal.edirepository.org/nis/mapbrowse?packageid=edi.199.12
 chemistry <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/199/12/a33a5283120c56e90ea414e76d5b7ddb")
@@ -53,7 +62,7 @@ BVRplatform <- read.csv("https://portal.edirepository.org/nis/dataviewer?package
 
 ####weekly dataframe for interpolation####
 start_date <- as.Date("2014-01-01")
-end_date <- as.Date("2023-12-31")
+end_date <- as.Date("2024-12-31")
 
 weekly_dates <- data.frame(
   Date_fake = seq.Date(from = start_date, to = end_date, by = "week")
@@ -184,8 +193,21 @@ water_levelscoalesced<- water_levelsjoined|>
 water_levels <- expanded_dates|>
   left_join(water_levelscoalesced, by = c("Year", "DOY"))
 
-ggplot(water_levels, aes(x = Date, y = WaterLevel_m))+
-  geom_line()
+ggplot(water_levels, aes(x = Date, y = WaterLevel_m)) +
+  geom_line(color = "#2C3E50", size = .8) +  # Use a sophisticated dark blue-gray color
+  theme_minimal(base_size = 14) +  # Increase base font size for readability
+  theme(
+    panel.grid.major = element_line(color = "gray80", size = 0.3),  # Subtle grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines for a cleaner look
+    axis.title = element_text(face = "bold"),  # Bold axis titles
+    axis.text = element_text(color = "black"),  # Dark axis text for contrast
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5)  # Centered bold title
+  ) +
+  labs(
+    title = "Water Level Over Time",
+    x = "Date",
+    y = "Water Level (m)"
+  )
 
 ####phyto interp####
 #1. first bind it to expanded_dates (this has all the depths and all the weeks I want to interpolate to)
@@ -247,10 +269,17 @@ metalsdf_filtered <- metalsdf |>
   mutate(Date = as_date(DateTime))|>
   filter(!if_any(starts_with("Flag"), ~. == 68))
 
+#how much raw metal data do we have?
+
 variables <- c("SFe_mgL", "TFe_mgL", "SMn_mgL", "SCa_mgL",
                "TCa_mgL", "TCu_mgL", "SCu_mgL", "SBa_mgL", "TBa_mgL")
 
+data_availability(metalsdf_filtered, variables)
+
 metals_interpolated <- interpolate_variable(metalsdf_filtered, variables, expanded_dates)
+
+data_availability(metals_interpolated, variables)
+
 
 phytos_wtrlvl_metals <- phytos_waterlevel|>
   left_join(metals_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
@@ -258,15 +287,18 @@ phytos_wtrlvl_metals <- phytos_waterlevel|>
 #### ghgs  ####
 ghgs_filtered <- ghgs |>
   filter(Reservoir == "BVR", Site == 50)|>
-  mutate(DateTime = as_date(DateTime))|>
-  group_by(DateTime, Depth_m)|>
+  mutate(Date = as_date(DateTime))|>
+  group_by(Date, Depth_m)|>
   summarise(CO2_umolL = mean(CO2_umolL, na.rm = TRUE)
             , CH4_umolL = mean(CH4_umolL, na.rm = TRUE))|>
   ungroup()|>
   mutate(Reservoir = "BVR", 
          Site = 50)
 
+#see how much raw ghg data is available
 variables <- c("CO2_umolL", "CH4_umolL")
+
+data_availability(ghgs_filtered, variables)
 
 ghgs_interpolated <- interpolate_variable(ghgs_filtered, variables, expanded_dates)
 
@@ -275,20 +307,48 @@ phytos_wtrlvl_metals_ghgs <- phytos_wtrlvl_metals|>
 
 #### secchi and attenuation coefficient  ####
 {
-secchi <- secchiframe |>
-  mutate(Date = as_date(DateTime)) |>
-  group_by(Date, Reservoir, Site) |>
-  summarise(Secchi_m = mean(Secchi_m, na.rm = TRUE))
-
-BVRsecchi <- secchi |>
-  filter(Reservoir == "BVR" & Site == 50)
+  
+  secchi_df <- secchiframe |>
+    mutate(Date = as_date(DateTime)) |>
+    group_by(Date, Reservoir, Site) |>
+    summarise(Secchi_m = mean(Secchi_m, na.rm = TRUE), .groups = "drop") |>
+    filter(Reservoir == "BVR" & Site == 50) |>
+    mutate(Year = year(Date), DOY = yday(Date))
+  
+  variables <- c("Secchi_m")
+  
+  data_availability(secchi_df, variables) #see how much raw secchi data is available
+  
+  # Ensure DOY_year_ref contains all DOY values for each Year
+  DOY_year_ref <- expand.grid(Year = unique(secchi_df$Year), DOY = 1:366) |> # Handle leap years
+    filter(!(Year %% 4 != 0 & DOY == 366)) |>  # Remove DOY 366 for non-leap years
+    mutate(Date = as.Date(DOY - 1, origin = paste0(Year, "-01-01")))  # Ensure Date matches DOY
+  
+  # Perform interpolation
+  secchi_interpolated <- DOY_year_ref %>%
+    left_join(secchi_df, by = c("Year", "DOY")) %>%
+    filter(Year > 2013) %>%
+    group_by(Year) %>%
+    mutate(
+      first_valid_DOY = min(DOY[!is.na(Secchi_m)], na.rm = TRUE),
+      last_valid_DOY = max(DOY[!is.na(Secchi_m)], na.rm = TRUE),
+      Secchi_m = ifelse(
+        DOY >= first_valid_DOY & DOY <= last_valid_DOY,
+        na.approx(Secchi_m, x = DOY, na.rm = FALSE),
+        NA_real_
+      )
+    ) |>
+    arrange(Year, DOY) |>
+    select(Year, DOY, Secchi_m)
 
 # Adding Secchi
 pwmgs <- phytos_wtrlvl_metals_ghgs|> #first letter of each dataframe for traceability
-  left_join(BVRsecchi, by = c("Date"))|>
+  left_join(secchi_interpolated, by = c("Year", "DOY"))|>
   group_by(Date)|>
   fill(Secchi_m, .direction = "updown")|>
   ungroup()
+
+data_availability(pwmgs, variables)
 
 # Calculating K_d and light availability from secchi
 
@@ -299,173 +359,85 @@ pwmgsl <- pwmgs |> #add light
 }
 
 ####Adding PAR, DO, DOsat_percent, cond, ORP, pH, temp ####
+#####YSI#####
+ysi_profiles <- ysi_profiles|>
+  mutate(Date = as_date(DateTime))
 
-ysi_profiles_filtered <- ysi_profiles |>
-  filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(DO_mgL = mean(DO_mgL, na.rm = TRUE),
-            PAR_umolm2s = mean(PAR_umolm2s, na.rm = TRUE), 
-            DOsat_percent = mean(DOsat_percent, na.rm = TRUE),
-            Cond_uScm = mean(Cond_uScm, na.rm = TRUE),
-            ORP_mV = mean(ORP_mV, na.rm = TRUE),
-            pH = mean(pH, na.rm = TRUE),
-            Temp_C = mean(Temp_C, na.rm = TRUE))
+#come back to remove flags
+variables <- c("DO_mgL", "PAR_umolm2s", "DOsat_percent", "Cond_uScm", "ORP_mV", "pH", "Temp_C")
 
+data_availability(ysi_profiles, variables)
+
+# Generate the plot
+plot <- data_availability(ysi_profiles, variables)  
+# Save the plot with specific dimensions
+ggsave("raw_ysi_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
+
+
+#removing PAR, ORP, cond, and pH due to limited data availability
+#keeping temp because YSI has the most temp
+
+variables <- c("DO_mgL","DOsat_percent", "Temp_C")
+ysi <- ysi_profiles|>
+  select(-PAR_umolm2s, -ORP_mV, -Cond_uScm, -pH)
+ysi_interpolated <- interpolate_variable(ysi, variables, expanded_dates)
+
+pwmgsly <- pwmgsl|>
+  left_join(ysi_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
+
+#look at new interpolated values for DO and DOsat
+data_availability(ysi_interpolated, variables)
+# Generate the plot
+plot <- data_availability(ysi_interpolated, variables)  
+# Save the plot with specific dimensions
+ggsave("data_availability_plot.png", plot = plot, width = 8, height = 6, dpi = 300)
+
+
+#####CTD#####
 CTDfiltered <- CTD|> #flag 2, instrument malfunction. haven't removed flags yet
   filter(Reservoir == "BVR", Site == 50)|>
   filter(!if_any(starts_with("Flag"), ~. == 68))|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(DO_mgL = mean(DO_mgL, na.rm = TRUE),
-            PAR_umolm2s = mean(PAR_umolm2s, na.rm = TRUE), 
-            DOsat_percent = mean(DOsat_percent, na.rm = TRUE),
-            Cond_uScm = mean(Cond_uScm, na.rm = TRUE),
-            ORP_mV = mean(ORP_mV, na.rm = TRUE),
-            pH = mean(pH, na.rm = TRUE),
-            Temp_C = mean(Temp_C))
+  mutate(Date = as_date(DateTime))
 
-#now join both together
-combined_df <- full_join(ysi_profiles_filtered, CTDfiltered, by = c("Date", "Depth_m"))
+variables <- c("DO_mgL", "PAR_umolm2s", "DOsat_percent", "Cond_uScm", "ORP_mV", 
+               "pH", "Temp_C")
+plot <- data_availability(CTDfiltered, variables)
+ggsave("raw_CTD_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
 
-combined_df2 <- combined_df %>%
-  filter(year(Date) != 2013) %>%
-  mutate(PAR_umolm2s = coalesce(PAR_umolm2s.y, PAR_umolm2s.x)) %>%
-  mutate(DO_mgL = coalesce(DO_mgL.y, DO_mgL.x)) %>%
-  mutate(DOsat_percent = coalesce(DOsat_percent.y, DOsat_percent.x)) %>%
-  mutate(Cond_uScm = coalesce(Cond_uScm.y, Cond_uScm.x)) %>%
-  mutate(ORP_mV = coalesce(ORP_mV.y, ORP_mV.x)) %>%
-  mutate(pH = coalesce(pH.y, pH.x)) %>%
-  mutate(Temp_C = coalesce(Temp_C.y, Temp_C.x)) %>%
-  select(-PAR_umolm2s.x, -PAR_umolm2s.y,
-         -DO_mgL.x, -DO_mgL.y,
-         -DOsat_percent.x, -DOsat_percent.y,
-         -Cond_uScm.x, -Cond_uScm.y,
-         -ORP_mV.x, -ORP_mV.y,
-         -pH.x, -pH.y,
-         -Temp_C.x, -Temp_C.y)
+#variables to use from CTD: Cond and temp
+variables <- c("Cond_uScm")
+CTDinterpolated <- interpolate_variable(CTDfiltered, variables, expanded_dates)
+plot <- data_availability(CTDinterpolated, variables)
+ggsave("interpolated_CTD_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
 
-#this was used from Lewis et al. 2023
-{
-atten_k <- combined_df2%>%
-  filter(!is.na(PAR_umolm2s),
-         !is.na(Depth_m))%>%
-  group_by(Date)%>%
-  filter(sum(Depth_m<0)>0)%>%
-  mutate(I0 = mean(PAR_umolm2s[Depth_m<0], na.rm = T),
-         PAR_umolm2s = ifelse(PAR_umolm2s==0,0.001,PAR_umolm2s))%>%
-  filter(Depth_m>0,
-         !I0==0)%>%
-  summarize(I0 = unique(I0),
-            k = coef(lm(I(log(PAR_umolm2s)-log(I0))~ 0 + Depth_m)),
-            r2 = summary(lm(I(log(PAR_umolm2s)-log(I0)) ~ 0 + Depth_m))$r.squared,
-            Zeu = min(Depth_m[PAR_umolm2s<I0/100]),
-            Zeu_0.1 = min(Depth_m[PAR_umolm2s<I0/1000]))%>%
-  filter(r2>0.9)|>
-  select(Date, Zeu, Zeu_0.1)
-}#ends here
-
-
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(combined_df2) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(interp_PAR_umolm2s = zoo::na.approx(PAR_umolm2s, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DO_mgL = zoo::na.approx(DO_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DOsat_percent = zoo::na.approx(DOsat_percent, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_Cond_uScm = zoo::na.approx(Cond_uScm, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_ORP_mV = zoo::na.approx(ORP_mV, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_pH = zoo::na.approx(pH, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_Temp_C = zoo::na.approx(Temp_C, x = Depth_m, na.rm = FALSE)) |>
-  ungroup()|>
-  select(-DO_mgL, -PAR_umolm2s, -DOsat_percent, -Cond_uScm, -ORP_mV, -pH, -Temp_C)
-
-final_PAR <- DCM_BVRwmetalsghgssecchilight %>%
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  filter(Depth_m %in% DCM_BVRdata$Depth_m) # Keep only rows with depths present in flora data
-
-final_PAR <- final_PAR|> #joining lewis calculations
-  left_join(atten_k, by = "Date", relationship = "many-to-many")
-
-library(conflicted)
-conflicts_prefer(dplyr::lag)
-
-PAR_Kd_PZ <- final_PAR |>
-  group_by(CastID) |>
-  mutate(interp_PAR_umolm2s = if_else(interp_PAR_umolm2s == 0, 0.001, interp_PAR_umolm2s))|>
-  mutate(PAR_kd = (log(lag(interp_PAR_umolm2s)) - log(interp_PAR_umolm2s)) / (Depth_m - lag(Depth_m)),
-         PAR_kd = ifelse(is.na(PAR_kd) | Depth_m == lag(Depth_m), NA, PAR_kd)) |>
-  mutate(mean_Kd = mean(PAR_kd, na.rm = TRUE)) |>
-  mutate(PAR_PZ = ifelse(is.na(mean_Kd) | mean_Kd == 0, NA, log(100) / mean_Kd))
-
-# Now calculating light availability percentage (LAP) using PAR
-final_dataLAP <- PAR_Kd_PZ |>
-  group_by(CastID) |>
-  mutate(PAR_LAP = 100 * exp(-PAR_kd * Depth_m))
-
-
-####Secchi PZ####
-#using secchi_PZ because the data for PAR between CTD and YSI is too different (for example look at ysi_profiles filtered and CTD filtered for 2018-5-4)
-#if I want to calculate PZ for specific years it would be ok but across all years no
-final_datasecPZ <- final_dataLAP |>
-  mutate(secchi_PZ = 2.7*Secchi_m)|>
-  relocate(secchi_PZ, .before = sec_LAP)|>
-  relocate(PAR_LAP, .after = sec_LAP)|>
-  group_by(Date, Depth_m, CastID)|>
-  mutate(Temp_C = rowMeans(cbind(Temp_C, interp_Temp_C), na.rm = TRUE))|>
-  select(-interp_Temp_C)
-
-
-#decided to use secchi based on exploring data availability and values across years)
-
+#join to dataframe with everything
+pwmgslyc <- pwmgsly|>
+  left_join(CTDinterpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
 
 #### Nutrients  ####
 {
 chemistry_filtered <- chemistry |>
   filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Depth_m, Date)|>
-  summarise(TN_ugL = mean(TN_ugL, na.rm = TRUE),
-            TP_ugL = mean(TP_ugL, na.rm = TRUE),
-            NH4_ugL = mean(NH4_ugL, na.rm = TRUE), 
-            NO3NO2_ugL = mean(NO3NO2_ugL, na.rm = TRUE),
-            SRP_ugL = mean(SRP_ugL, na.rm = TRUE),
-            DOC_mgL = mean(DOC_mgL, na.rm = TRUE),
-            DIC_mgL = mean(DIC_mgL, na.rm = TRUE),
-            DC_mgL = mean(DC_mgL, na.rm = TRUE))
-
-interpolated_data <- DCM_BVRdata |> 
-  select(Date, Depth_m) |> 
-  distinct(Date, Depth_m) |> # Get unique combinations of Date and Depth_m
-  bind_rows(chemistry_filtered) |> 
-  arrange(Date, Depth_m) |> # Sort data by Date and Depth_m
-  group_by(Date)  |> # Group data by Date for interpolation
-  mutate(interp_TN_ugL = zoo::na.approx(TN_ugL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_TP_ugL = zoo::na.approx(TP_ugL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_NH4_ugL = zoo::na.approx(NH4_ugL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_NO3NO2_ugL = zoo::na.approx(NO3NO2_ugL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_SRP_ugL = zoo::na.approx(SRP_ugL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DOC_mgL = zoo::na.approx(DOC_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DIC_mgL = zoo::na.approx(DIC_mgL, x = Depth_m, na.rm = FALSE)) |>
-  mutate(interp_DC_mgL = zoo::na.approx(DC_mgL, x = Depth_m, na.rm = FALSE)) |>
-  ungroup() # Ensure the grouping is removed for the final merge
-
-#Merge with DCM BVR data and keep only relevant rows
-final_datanutrients <- final_datasecPZ %>%
-  left_join(interpolated_data, by = c("Date", "Depth_m"), relationship = "many-to-many") %>%
-  select(-TN_ugL,-TP_ugL, -NH4_ugL, -NO3NO2_ugL,-SRP_ugL, -DOC_mgL, -DIC_mgL, -DC_mgL) %>% # Remove unnecessary columns
-  filter(Depth_m %in% DCM_BVRdata$Depth_m)|> # Keep only rows with depths present in DCMdata
-  mutate(Reservoir = "BVR")|>
-  mutate(Site = 50)|>
-  relocate(Reservoir, .before = 1)|>
-  relocate(Site, .before = 1)
+  mutate(Date = as_date(DateTime))
 
 
-conflicts_prefer(dplyr::filter)
+variables <- c("TN_ugL", "TP_ugL", "NH4_ugL", "NO3NO2_ugL", "SRP_ugL", 
+               "DOC_mgL", "DIC_mgL", "DC_mgL", "DN_mgL")
+#raw data availability 
+plot <- data_availability(chemistry_filtered, variables)
+ggsave("raw_chem_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
+
+#interpolated data availability 
+chemistry_interpolated <- interpolate_variable(chemistry_filtered, variables, expanded_dates)
+plot <- data_availability(chemistry_interpolated, variables)
+ggsave("interpolated_chem_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
+
+pwmgslycc <- pwmgslyc|>
+  left_join(chemistry_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
+
 
 #### NP ratio  ####
+
 calculate_np_ratio <- function(tn, tp) {
   # Convert concentrations from µg/L to mg/L
   tn_mgL <- tn / 1000
@@ -481,12 +453,10 @@ calculate_np_ratio <- function(tn, tp) {
   return(calcnp_ratio)
 }
 
-conflicts_prefer(dplyr::filter)
 # added np ratio to dataframe
-final_datanpratio <- final_datanutrients %>%
-  mutate(np_ratio = calculate_np_ratio(interp_TN_ugL,interp_TP_ugL))|>
-  relocate(np_ratio, .before = interp_TN_ugL)
-}
+pwmgslyccn <- pwmgslycc %>%
+  mutate(np_ratio = calculate_np_ratio(TN_ugL,TP_ugL))|>
+  relocate(np_ratio, .before = TN_ugL)
 
 #### Visualizing metdata  ####
 
@@ -512,14 +482,13 @@ metplots <- function(yearz, variable, maxx = NULL){
 }
 
 #### Precipitation ####
+#not including all of this for now
 metdataprecip <- metdata0 |> 
   group_by(Date, year(DateTime))|> 
   mutate(precip_daily = sum(Rain_Total_mm, na.rm = TRUE))|>
   ungroup()|>
   relocate(Date, .before = DateTime)|>
   relocate(precip_daily, .before = Rain_Total_mm)
-
-
 
 #b1 <- metplots(2015, precip_daily, maxx = 80)
 #b2 <- metplots(2016, precip_daily, maxx = 80)
@@ -590,83 +559,79 @@ final_datamet <- final_datanpratio|>
 ####thermocline ####
 
 # Dataframe with thermocline
-thermocline_df <- final_datamet |>
-  group_by(CastID, Date, Depth_m) |>
-  summarize(Temp_C = mean(Temp_C, na.rm = TRUE)) |>
-  ungroup() |>
-  group_by(CastID) |>
-  mutate(thermocline_depth = thermo.depth(
-    Temp_C, 
-    Depth_m, 
-    Smin = 2, 
-    seasonal = TRUE, 
-    index = FALSE,
-    mixed.cutoff = 3
-  )) |>
+just_thermocline <- pwmgslyccn |>
+  filter(!is.na(Temp_C)) |>
+  group_by(Date) |>
+  group_modify(~ {
+    # Calculate max depth where Temp_C is not NA
+    max_depth <- max(.x$Depth_m[!is.na(.x$Temp_C)], na.rm = TRUE)
+    
+    # Apply thermo.depth() function on the subset of data for each group
+    thermocline_depth <- thermo.depth(
+      .x$Temp_C, 
+      .x$Depth_m, 
+      Smin = 1, 
+      seasonal = TRUE, 
+      index = FALSE, 
+      mixed.cutoff = 0.25 * max_depth  # Use max_depth for mixed.cutoff
+    )
+    
+    # Add the thermocline_depth column to the data and return the result
+    .x %>%
+      mutate(thermocline_depth = thermocline_depth)
+  }) |>
   ungroup()
+
+
+looking <- just_thermocline|>
+  select(Date, Depth_m, Temp_C, thermocline_depth)|>
+  #filter(!is.na(Temp_C))|>
+  filter(Date %in% c("2015-06-10"))
 
 #fixing incorrect thermoclines
-thermocline_df_unique<- thermocline_df|>
-  filter(thermocline_depth<3)|>
-  group_by(Date)|>
-  filter(Depth_m > thermocline_depth)|>
-  mutate(thermocline_depth = thermo.depth(Temp_C, 
-                                          Depth_m, 
-                                          Smin = 2, 
-                                          seasonal = TRUE, 
-                                          index = FALSE,
-                                          mixed.cutoff = 3
-  ))|>
-  ungroup()
-
-both_merged<- thermocline_df|>
-  left_join(thermocline_df_unique, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")|>
-  mutate(thermocline_depth = coalesce(thermocline_depth.y, thermocline_depth.x))|>
-  mutate(Date = Date.x)|>
-  select(-Date.y, thermocline_depth.y, thermocline_depth.x)
+# weird_fixed<- pwmgslyccnt|>
+#   filter(thermocline_depth<3)|>
+#   group_by(Date)|>
+#   filter(Depth_m > thermocline_depth)|>
+#   mutate(thermocline_depth = thermo.depth(Temp_C, 
+#                                           Depth_m, 
+#                                           Smin = 2, 
+#                                           seasonal = TRUE, 
+#                                           index = FALSE,
+#                                           mixed.cutoff = 3
+#   ))|>
+#   ungroup()
 
 #add to frame
-final_datathermocline <- final_datanpratio|>
-  left_join(both_merged, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")
+# final_datathermocline <- final_datanpratio|>
+#   left_join(both_merged, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")
 
-initial_thermo <- final_datathermocline|>
-  group_by(CastID)|>
+pwmgslyccnt <- just_thermocline|>
+  group_by(Date)|>
   fill(thermocline_depth, .direction = "updown")|>
   ungroup()|>
   relocate(thermocline_depth, .before = Temp_C)
 
-final_datathermo <- initial_thermo|>
-  mutate(Date = Date.x.x)|>
-  #thermocline added manually via plot inspection
-  mutate(thermocline_depth = if_else(Date %in% c("2022-06-27", "2022-08-08"), 3, thermocline_depth))|>
-  mutate(thermocline_depth = if_else(!Date %in% c("2016-05-19", "2016-08-23","2021-08-09", "2019-09-04"),thermocline_depth, 5.2))|>
-  mutate(thermocline_depth = if_else(!Date %in% c("2018-06-21", "2016-10-25"), thermocline_depth, NA_real_))|> #watercolumn mixed
-  mutate(thermocline_depth = if_else(Date %in% c("2020-08-06"), 3.75, thermocline_depth))|>
-  group_by(Date)|>
-  mutate(thermocline_depth = mean(thermocline_depth), na.rm = TRUE)
-
-#checking to make sure the thermocline is where I expect
-conflicts_prefer(dplyr::filter)
-
-plot_data <- final_datathermo |>
-  filter(Date %in% c("2019-09-04"))|> #change depths here to see a specific day and see if the thermocline matches up
+#####individual date thermocline check####
+plot_data <- pwmgslyccnt |>
+  filter(Date %in% c("2015-06-10"))|> #change depths here to see a specific day and see if the thermocline matches up
   select(Date, Depth_m, thermocline_depth, Temp_C)
 # Extract the thermocline depth for the specific date for the line
 thermocline_depth_value <- unique(plot_data$thermocline_depth)
-
 # Create the plot
 ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
   geom_point() +  # Add points
   geom_hline(yintercept = thermocline_depth_value, linetype = "dashed", color = "red") +  # Add the thermocline line
   scale_y_reverse() +  # Inverts the y-axis
-  labs(x = "Temperature (°C)", y = "Depth (m)", title = "Thermocline Depth on 2016-10-25") +
+  labs(x = "Temperature (°C)", y = "Depth (m)", title = "Thermocline Depth on ____") +
   theme_minimal()  # Optional: apply a clean theme
 
 
 #visualize thermocline depth across all years
-ggplot(final_datathermo, aes(x = Date, y = thermocline_depth))+
-  scale_y_reverse()+
-  geom_line()
+ggplot(pwmgslyccnt, aes(x = Date)) +
+  scale_y_reverse() +
+  geom_line(aes(y = thermocline_depth), color = "red") +  # Line for thermocline_depth in red
+  geom_line(aes(y = WaterLevel_m), color = "blue")  # Line for water_level in blue
 #2016-10-11 looks very deep but it is real
 
 
@@ -919,7 +884,7 @@ peaks_calculated <- for_peaks %>%
 
 final_data_peaks <- peaks_calculated|>
   group_by(Date)|>
-  mutate(peak.magnitude = max(Bluegreens_ugL)-mean(Bluegreens_ugL))|>
+  mutate(peak.magnitude = max(Bluegreens_ugL))|>
   ungroup()|>
   select(Date, Depth_m, blue_mean, blue_sd, blue_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many bluegreens there are at the DCM for total_conc
 
