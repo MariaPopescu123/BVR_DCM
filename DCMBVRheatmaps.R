@@ -45,7 +45,6 @@ Photic_zone<- final_data0|>
 
 flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
 {
-  
   #subset to relevant data
   fp <- fp_data %>%
     filter(year(DateTime) == year) %>%
@@ -83,7 +82,7 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
              !is.infinite(DOY) & !is.infinite(Depth_m) & !is.infinite(fp_new[[z]]))
   
   
-  fig_title <- paste("BVR", year, "Site", site, z, sep = " ")
+  fig_title <- paste("BVR", year) #add this in if you want , "Site", site, z, sep = " "
   
   interp <- interp(x=fp_new$DOY, y = fp_new$Depth_m, z = unlist(fp_new[z]),
                    xo = seq(min(fp_new$DOY), max(fp_new$DOY), by = .1), #this is what i'm playing with right now
@@ -91,47 +90,83 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
                    extrap = T, linear = T, duplicate = "strip")
   interp <- interp2xyz(interp, data.frame=T)
   
+  # p1 <- ggplot(interp, aes(x=x, y=y))+
+  #   geom_raster(aes(fill=z))+
+  #   scale_y_reverse(expand = c(0,0))+
+  #   scale_x_continuous(expand = c(0, 0), breaks = seq(1, 366, by = 30),
+  #                      labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
+  #   scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +
+  #   scale_color_gradient(low = "blue", high = "red") + # Adjust color scale as needed
+  #   labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
+  #   theme_bw()+
+  #   theme(
+  #     legend.text = element_text(size = 8), # Adjust text size in legend
+  #     legend.title = element_text(size = 10), # Adjust title size in legend
+  #     legend.key.size = unit(0.5, "cm") # Adjust the size of legend keys
+  #   )
+  # 
+  # print(p1)
+  
 
-  p1 <- ggplot(interp, aes(x=x, y=y))+
-    geom_raster(aes(fill=z))+
-    scale_y_reverse(expand = c(0,0))+
-    scale_x_continuous(expand = c(0, 0), breaks = seq(1, 366, by = 30), 
-                       labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
-    scale_fill_gradientn(colours = blue2green2red(60), na.value = "grey", limits = c(NA, max_legend_value), oob = scales::squish  # Ensure values are squished into the defined range maybe remove oob stuff if needed
-    ) +
-    labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
-    theme_bw()+
-    theme(
-      legend.text = element_text(size = 8), # Adjust text size in legend
-      legend.title = element_text(size = 10), # Adjust title size in legend
-      legend.key.size = unit(0.5, "cm") # Adjust the size of legend keys
-    )
-  
-  print(p1)
-  
+p1 <- ggplot(interp, aes(x = x, y = y)) +
+  geom_raster(aes(fill = z)) +
+  scale_y_reverse(expand = c(0, 0)) +
+  scale_x_continuous(
+    expand = c(0, 0),
+    breaks = seq(1, 366, by = 30),
+    labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")
+  ) +
+  scale_fill_gradientn(
+    colours = c(blue2green2red(60), "black", "black", "black","black", "black","black", "black", "black"),  # Add black explicitly
+    values = scales::rescale(c(min(interp$z, na.rm = TRUE), 25, 100, max_legend_value)),
+    limits = c(min(interp$z, na.rm = TRUE), max_legend_value),
+    oob = scales::squish  # Ensures out-of-bounds values are mapped properly
+  ) +
+  labs(
+    x = "Day of year",
+    y = "Depth (m)",
+    title = fig_title,
+    fill = unitz,
+    color = "Bluegreens (µg/L)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 10),
+    legend.key.size = unit(0.5, "cm")
+  )
+
+print(p1)
+
+
 }
 
 #### flora ####
 {
   
-  b1 <- flora_heatmap(fp_data = phytos, year = 2014, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b2 <- flora_heatmap(fp_data = phytos, year = 2015, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b3 <- flora_heatmap(fp_data = phytos, year = 2016, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b4 <- flora_heatmap(fp_data = phytos, year = 2017, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b5 <- flora_heatmap(fp_data = phytos, year = 2018, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b6 <- flora_heatmap(fp_data = phytos, year = 2019, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b7 <- flora_heatmap(fp_data = phytos, year = 2020, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b8 <- flora_heatmap(fp_data = phytos, year = 2021, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b9 <- flora_heatmap(fp_data = phytos, year = 2022, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
-  b10 <- flora_heatmap(fp_data = phytos, year = 2023, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = 150)
+  b1 <- flora_heatmap(fp_data = phytos, year = 2014, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b2 <- flora_heatmap(fp_data = phytos, year = 2015, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b3 <- flora_heatmap(fp_data = phytos, year = 2016, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b4 <- flora_heatmap(fp_data = phytos, year = 2017, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b5 <- flora_heatmap(fp_data = phytos, year = 2018, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b6 <- flora_heatmap(fp_data = phytos, year = 2019, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b7 <- flora_heatmap(fp_data = phytos, year = 2020, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b8 <- flora_heatmap(fp_data = phytos, year = 2021, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b9 <- flora_heatmap(fp_data = phytos, year = 2022, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b10 <- flora_heatmap(fp_data = phytos, year = 2023, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+ # b11 <- flora_heatmap(fp_data = phytos, year = 2024, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
   
-  bluegreens <- plot_grid(
+  
+  phytos_maps <- plot_grid(
     b1, b2, b3, b4, b5,
-    b6, b7, b8, b9, b10,
+    b6, b7, b8, b9, b10, 
     ncol = 5
   )
   
-  print(bluegreens)
+  print(phytos)
+  
+  ggsave("BVR_phytos_heatmaps.png", phytos_maps, width = 20, height = 7, dpi = 300)
+  
   
   p1 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "TotalConc_ugL")
   p2 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "BrownAlgae_ugL")

@@ -27,6 +27,7 @@ looking <- final_result|>
 
 #####OTHER NOTES#####
 #to do:
+#change the way I am interpolating
 #met data
 #add formula to thermocline function to make sure it doesn't go super deep 
 

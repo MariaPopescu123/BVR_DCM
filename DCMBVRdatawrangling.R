@@ -17,11 +17,12 @@ source("data_availability_function.R")
 #### Loading Data  ####
 
 #ctd data https://portal.edirepository.org/nis/metadataviewer?packageid=edi.200.14
+#not updated for 2024
 CTD <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/200/14/0432a298a90b2b662f26c46071f66b8a")
 
 #flora data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.272.9
-#updated 2025
-current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/9/f246b36c591a888cc70ebc87a5abbcb7")
+#nonupdated
+current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/8/0359840d24028e6522f8998bd41b544e")
 
 # metals data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.455.8
 metalsdf <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/455/8/9c8c61b003923f4f03ebfe55cea8bbfd")
@@ -93,6 +94,18 @@ phytos <- current_df %>%
   mutate(Week = week(Date))|>
   mutate(Year = year(Date))|>
   mutate(DOY = yday(Date))
+
+phytos2018 <- current_df %>% 
+  filter(Reservoir == "BVR", Site == 50)%>%
+  mutate(Date  = as_date(DateTime)) |> 
+  filter((hour(DateTime) >= 8), (hour(DateTime) <= 18))|>
+  filter(!(CastID == 592))|> #filter out weird drop in 2017
+  filter(!(CastID == 395))
+
+filtered<- 
+
+#write.csv(phytos, "phytos.csv", row.names = FALSE)
+
 
 
 ####flora instrument data availability####
@@ -272,11 +285,11 @@ metalsdf_filtered <- metalsdf |>
 variables <- c("SFe_mgL", "TFe_mgL", "SMn_mgL", "SCa_mgL",
                "TCa_mgL", "TCu_mgL", "SCu_mgL", "SBa_mgL", "TBa_mgL")
 
-data_availability(metalsdf_filtered, variables)
+#data_availability(metalsdf_filtered, variables)
 
 metals_interpolated <- interpolate_variable(metalsdf_filtered, variables, expanded_dates)
 
-data_availability(metals_interpolated, variables)
+#data_availability(metals_interpolated, variables)
 
 
 phytos_wtrlvl_metals <- phytos_waterlevel|>
@@ -285,13 +298,7 @@ phytos_wtrlvl_metals <- phytos_waterlevel|>
 #### ghgs  ####
 ghgs_filtered <- ghgs |>
   filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(CO2_umolL = mean(CO2_umolL, na.rm = TRUE)
-            , CH4_umolL = mean(CH4_umolL, na.rm = TRUE))|>
-  ungroup()|>
-  mutate(Reservoir = "BVR", 
-         Site = 50)
+  mutate(Date = as_date(DateTime))
 
 #see how much raw ghg data is available
 variables <- c("CO2_umolL", "CH4_umolL")
@@ -328,7 +335,7 @@ phytos_wtrlvl_metals_ghgs <- phytos_wtrlvl_metals|>
   # Perform interpolation
   secchi_interpolated <- DOY_year_ref %>%
     left_join(secchi_df, by = c("Year", "DOY")) %>%
-    filter(Year > 2013) %>%
+    filter(Year > 2013, DOY != 207) %>% #filter out incorrect secchi obseration (doesn't make sense) 
     group_by(Year) %>%
     mutate(
       first_valid_DOY = min(DOY[!is.na(Secchi_m)], na.rm = TRUE),
@@ -341,6 +348,7 @@ phytos_wtrlvl_metals_ghgs <- phytos_wtrlvl_metals|>
     ) |>
     arrange(Year, DOY) |>
     select(Year, DOY, Secchi_m)
+           
 
 # Adding Secchi
 pwmgs <- phytos_wtrlvl_metals_ghgs|> #first letter of each dataframe for traceability
@@ -357,7 +365,7 @@ pwmgsl <- pwmgs |> #add light
   mutate(sec_K_d = 1.7/Secchi_m) |>
   mutate(light_availability_fraction = exp(-sec_K_d * Depth_m)) |>
   mutate(sec_LAP = light_availability_fraction * 100)|> #light availability percentage calculated from secchi
-  mutate(PZ = 2.79 * Secchi_m)|>
+  mutate(PZ = 4.065 /sec_K_d)|>
   group_by(Date)|>
   mutate(PZ = if_else(PZ > WaterLevel_m, WaterLevel_m, PZ))
 }
@@ -412,24 +420,24 @@ CTDfiltered <- CTD|> #flag 2, instrument malfunction. haven't removed flags yet
 variables <- c("DO_mgL", "PAR_umolm2s", "DOsat_percent", "Cond_uScm", "ORP_mV", 
                "pH", "Temp_C")
 plot <- data_availability(CTDfiltered, variables)
-ggsave("raw_CTD_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
+#ggsave("raw_CTD_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
 
-#variables to use from CTD: Cond and temp
-variables <- c("Cond_uScm")
-CTDinterpolated <- interpolate_variable(CTDfiltered, variables, expanded_dates)
-plot <- data_availability(CTDinterpolated, variables)
-ggsave("interpolated_CTD_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
+#not going to use CTD
+#variables <- c("Cond_uScm")
+#CTDinterpolated <- interpolate_variable(CTDfiltered, variables, expanded_dates)
+#plot <- data_availability(CTDinterpolated, variables)
+#ggsave("interpolated_CTD_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
 
 #join to dataframe with everything
-pwmgslyc <- pwmgsly|>
-  left_join(CTDinterpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
+#pwmgslyc <- pwmgsly|>
+# left_join(CTDinterpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
 
 #need 2014 temp data from CTD
 CTDfiltered2014 <- CTDfiltered|>
   filter(year(Date) == 2014)
 variables <- c("Temp_C")
 CTDinterpolated <- interpolate_variable(CTDfiltered2014, variables, expanded_dates)
-pwmgslyc <- pwmgslyc|>
+pwmgslyc <- pwmgsly|>
   left_join(CTDinterpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))|>
   mutate(Temp_C = coalesce(Temp_C.x, Temp_C.y))|>
   select(-Temp_C.x, -Temp_C.y)
@@ -452,8 +460,8 @@ ggsave("raw_chem_availability.png", plot = plot, width = 20, height = 15, dpi = 
 
 #interpolated data availability 
 chemistry_interpolated <- interpolate_variable(chemistry_filtered, variables, expanded_dates)
-plot <- data_availability(chemistry_interpolated, variables)
-ggsave("interpolated_chem_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
+#plot <- data_availability(chemistry_interpolated, variables)
+#ggsave("interpolated_chem_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
 
 pwmgslycc <- pwmgslyc|>
   left_join(chemistry_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
@@ -1021,11 +1029,11 @@ plot <- ggplot(DCM_final, aes(x = DOY, y = Totals_DCM_conc, group = Year)) +
   geom_text(data = max_totals_per_year, 
             aes(x = DOY, y = Depth_m, 
                 label = paste0("Max: ", round(TotalConc_ugL, 2))), 
-            vjust = -0.5, hjust = 0.5, color = "black", size = 4) +  # Adjust text position further
+            vjust = -0.5, hjust = 0.5, color = "black", size = 5) +  # Adjust text position further
   labs(x = "Day of Year", y = "Peak Magnitude (m)", title = "Peak Magnitude Across Years (Only Showing Data with totals > 20)") +
   scale_y_continuous(limits = c(0, 400)) +  
   scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
-  facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
+  facet_wrap(~ Year, ncol = 5) +  # Create separate panels for each year
   theme(
     text = element_text(size = 32),  # Double the size of all text
     axis.title = element_text(size = 34),  # Increase axis title size
@@ -1037,7 +1045,7 @@ plot <- ggplot(DCM_final, aes(x = DOY, y = Totals_DCM_conc, group = Year)) +
     panel.grid.minor = element_blank()  # Optional: remove minor grid lines
   )
 
-ggsave("Peak Magnitude_across_years.png", plot, width = 20, height = 15, dpi = 300)
+ggsave("Peak Magnitude_across_years.png", plot, width = 30, height = 10, dpi = 300)
 
 looking <- DCM_final|>
   filter(!is.na(peak.magnitude))|>
@@ -1196,24 +1204,46 @@ ggplot(DCM_final, aes(x = Date)) +
 #lake surface area (log10(km2)), and maximum depth (log10(m))
 #as predictors included in each analysis."
 #Leach Patterns and Drivers
+
+#prepare data for random forest
+
+DCM_RF <- DCM_final |> 
+  ungroup()|>
+  select(Date, WaterLevel_m, thermocline_depth, Totals_DCM_conc, Totals_DCM_depth, PZ, 
+         max_Temp_C_depth, max_np_ratio_depth, max_SFe_mgL_depth, max_TFe_mgL_depth, 
+         max_SMn_mgL_depth, max_SCa_mgL_depth, max_TCa_mgL_depth, max_TCu_mgL_depth, 
+         max_SBa_mgL_depth, max_TBa_mgL_depth, max_CO2_umolL_depth, max_CH4_umolL_depth, 
+         max_DO_mgL_depth, max_DOsat_percent_depth, max_TN_ugL_depth, max_TP_ugL_depth, 
+         max_NH4_ugL_depth, max_NO3NO2_ugL_depth, max_SRP_ugL_depth, max_DOC_mgL_depth, 
+         max_DIC_mgL_depth, max_DC_mgL_depth, min_Temp_C_depth, min_np_ratio_depth, 
+         min_SFe_mgL_depth, min_TFe_mgL_depth, min_SMn_mgL_depth, min_SCa_mgL_depth, 
+         min_TCa_mgL_depth, min_TCu_mgL_depth, min_SBa_mgL_depth, min_TBa_mgL_depth, 
+         min_CO2_umolL_depth, min_CH4_umolL_depth, min_DO_mgL_depth, min_DOsat_percent_depth, 
+         min_TN_ugL_depth, min_TP_ugL_depth, min_NH4_ugL_depth, min_NO3NO2_ugL_depth, 
+         min_SRP_ugL_depth, min_DOC_mgL_depth) |>
+  group_by(Date) |>
+  summarise(across(everything(), mean, na.rm = TRUE)) |>
+  ungroup()
+
 library(randomForest)
 library(missForest)
 
 set.seed(123)  # Setting seed for reproducibility
 
 # Splitting data into training (70%) and testing (30%)
-index <- sample(1:nrow(DCM_final), size = 0.7 * nrow(DCM_final))  # 70% training data
-train_data <- DCM_final[index, ]
-test_data <- DCM_final[-index, ]
+index <- sample(1:nrow(DCM_RF), size = 0.7 * nrow(DCM_RF))  # 70% training data
+train_data <- DCM_RF[index, ]
+test_data <- DCM_RF[-index, ]
 
 
-
+#should run model on test dataset , currently mine is running on training. 
+#training and test RMSE, MAE and Rsquare value important to show. 
+#GLM-AED
 
 # Remove non-numeric columns (excluding Date, Depth_m, Year, etc.)
 non_numeric_columns <- sapply(train_data, function(x) !is.numeric(x) & !is.factor(x))
 train_data_no_non_numeric <- train_data %>%
-  select(-which(non_numeric_columns)) %>%
-  select(-Depth_m, -Year, -Week, -DOY, -Date)
+  select(-which(non_numeric_columns)) 
 
 # Replace Inf and NaN with NA in all numeric columns
 train_data_no_non_numeric <- train_data_no_non_numeric %>%
@@ -1233,6 +1263,11 @@ train_data_imputed_z <- train_data_no_na %>%
   
   # Add the excluded non-numeric columns (e.g., Date) back to the imputed dataset
   model_rf <- randomForest(Totals_DCM_depth ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
+  ######grid search CV function
+  #look at hyperparameters for RandomForest tune as many as 
+  #n_estimators, max_depth, minimum samples split, max_leaf nodes, and min_samples leaf
+  #change ntrees to 100 when playing with parameters
+  
   
   importance(model_rf)
   
@@ -1262,7 +1297,28 @@ train_data_imputed_z <- train_data_no_na %>%
   
   
   
+ 
   
+####making predictions####
+  # Predict Totals_DCM_depth for test data
+  test_predictions <- predict(model_rf, newdata = train_data_imputed_z)
+  
+  rmse <- sqrt(mean((test_predictions - train_data_imputed_z$Totals_DCM_depth)^2, na.rm = TRUE))
+  print(paste("RMSE:", rmse))
+  
+  # Plot predicted vs. actual values
+  ggplot(data = NULL, aes(x = train_data_imputed_z$Totals_DCM_depth, y = test_predictions)) +
+    geom_point(color = "blue") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      title = "Predicted vs Actual Totals_DCM_depth",
+      x = "Actual Totals_DCM_depth",
+      y = "Predicted Totals_DCM_depth"
+    ) +
+    theme_minimal()
+  
+  
+ 
 
 
 ####RF totals magnitude####
