@@ -104,7 +104,7 @@ phytos2018 <- current_df %>%
 
 filtered<- 
 
-#write.csv(phytos, "phytos.csv", row.names = FALSE)
+write.csv(phytos, "phytos.csv", row.names = FALSE)
 
 
 

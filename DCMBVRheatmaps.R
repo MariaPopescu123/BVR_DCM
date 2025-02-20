@@ -117,8 +117,8 @@ p1 <- ggplot(interp, aes(x = x, y = y)) +
     labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")
   ) +
   scale_fill_gradientn(
-    colours = c(blue2green2red(60), "black", "black", "black","black", "black","black", "black", "black"),  # Add black explicitly
-    values = scales::rescale(c(min(interp$z, na.rm = TRUE), 25, 100, max_legend_value)),
+    colours = c(blue2green2red(60), "black", "black", "black","black", "black","black", "black",  "black","black", "black","black", "black"),  # Add black explicitly
+    values = scales::rescale(c(min(interp$z, na.rm = TRUE), 50, 100, 110, max_legend_value)),
     limits = c(min(interp$z, na.rm = TRUE), max_legend_value),
     oob = scales::squish  # Ensures out-of-bounds values are mapped properly
   ) +
@@ -129,7 +129,16 @@ p1 <- ggplot(interp, aes(x = x, y = y)) +
     fill = unitz,
     color = "Bluegreens (µg/L)"
   ) +
+  
   theme_bw() +
+  guides(fill = guide_colorbar(
+    barwidth = .5, 
+    barheight = 15,
+    ticks.colour = "black",
+    frame.colour = "black",
+    breaks = c(0, 20, 40, 60, 80, 100, 150, 200, 500, 1000),
+    labels = c("0", "20", "40", "60", "80", "100", "150", "200", "500", "1000")
+  )) +
   theme(
     legend.text = element_text(size = 8),
     legend.title = element_text(size = 10),
@@ -163,7 +172,7 @@ print(p1)
     ncol = 5
   )
   
-  print(phytos)
+  print(phytos_maps)
   
   ggsave("BVR_phytos_heatmaps.png", phytos_maps, width = 20, height = 7, dpi = 300)
   
