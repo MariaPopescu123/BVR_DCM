@@ -163,7 +163,7 @@ print(p1)
   b8 <- flora_heatmap(fp_data = phytos, year = 2021, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
   b9 <- flora_heatmap(fp_data = phytos, year = 2022, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
   b10 <- flora_heatmap(fp_data = phytos, year = 2023, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
- # b11 <- flora_heatmap(fp_data = phytos, year = 2024, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+ b11 <- flora_heatmap(fp_data = phytos, year = 2024, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
   
   
   phytos_maps <- plot_grid(

@@ -24,6 +24,9 @@ CTD <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/200/14/0432a298a
 #nonupdated
 current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/8/0359840d24028e6522f8998bd41b544e")
 
+#published 2025
+current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/9/f246b36c591a888cc70ebc87a5abbcb7")
+
 # metals data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.455.8
 metalsdf <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/455/8/9c8c61b003923f4f03ebfe55cea8bbfd")
 #removed flags for 68 as per Cece's advice
@@ -219,6 +222,13 @@ ggplot(water_levels, aes(x = Date, y = WaterLevel_m)) +
     x = "Date",
     y = "Water Level (m)"
   )
+
+#what was the water level before and after drawdown 
+waterlevel_2022 <- water_levels |>
+  filter(Year == 2022) |>
+  group_by(Date) |>
+  summarise(WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE))
+
 
 ####phyto interp####
 #1. first bind it to expanded_dates (this has all the depths and all the weeks I want to interpolate to)
