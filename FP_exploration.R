@@ -19,15 +19,16 @@ casts <- dat %>%
   select(Reservoir, Date, Site) %>%
   distinct() 
 
+
 # Look at casts post-servicing
 
 # limit to casts you actually want
 #change dates here
 sample_dat <- casts %>%
   filter(Reservoir == "BVR" & Site == 50 & Date %in%
-  c("2016-08-03","2016-08-04", "2016-08-11", "2016-08-23" ))|>
+  c("2022-08-18"))|>
   mutate(SampleDepth = c(3.6), 
-         Date = factor(Date, levels = c("2016-08-03","2016-08-04", "2016-08-11", "2016-08-23")),
+         Date = factor(Date, levels = c("2022-08-18")),
          Date = as.Date(as.character(Date)))  # Convert factor back to Date
 
 
@@ -49,7 +50,7 @@ plot_casts <- ggplot(plot_dat, aes(x = ugL, y = Depth_m, group = var, color = va
   facet_wrap(facets = vars(FacetID))+
   xlab("micrograms per liter")+
   ylab("Depth (m)")+
-  geom_hline(aes(yintercept = SampleDepth))+
+ # geom_hline(aes(yintercept = SampleDepth))+
   scale_color_discrete(name = "Variable")+
   scale_linetype_discrete(na.translate = F)
 plot_casts

@@ -188,136 +188,84 @@ for (i in 1:length(unique(current_df$CastID))){ #for every unique FP cast
 ```{r Heatmap function}
 flora_heatmap <- function(fp_data, reservoir, year, site, z){
   
-  #subset to relevant data
+  # Subset to relevant data
   fp <- fp_data %>%
     filter(Reservoir == reservoir & year(DateTime) == year & Site == site) %>%
-    select(CastID, DateTime, Depth_m, {{z}}) 
+    select(CastID, DateTime, Depth_m, {{z}})
   
-  #slice by depth for each reservoir
-  if (reservoir == "FCR"){
-    
-    if(site == 50){
-       depths = seq(0.1, 9.3, by = 0.3)
-    } else if(site == 40){
+  # Slice by depth for each reservoir
+  if (reservoir == "FCR") {
+    if (site == 50) {
+      depths = seq(0.1, 9.3, by = 0.3)
+    } else if (site == 40) {
       depths = seq(0.1, 8.5, by = 0.3)
-    } else if(site == 30){
+    } else if (site == 30) {
       depths = seq(0.1, 7, by = 0.3)
-    } else if(site == 20){
+    } else if (site == 20) {
       depths = seq(0.1, 4.5, by = 0.3)
-    } else if(site == 10){
+    } else if (site == 10) {
       depths = seq(0.1, 3.5, by = 0.3)
     }
-  
-  df.final<-data.frame()
-  
-  for (i in 1:length(depths)){
-    
-fp_layer <- fp %>% 
-  group_by(CastID) %>% 
-  slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-
-# Bind each of the data layers together.
-df.final = bind_rows(df.final, fp_layer)
-
-}
-
-
-} else if (reservoir == "BVR"){
-  
-  depths = seq(0.1, 10, by = 0.3)
-  df.final<-data.frame()
-  
-  for (i in 1:length(depths)){
-    
-    fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-    
-    # Bind each of the data layers together.
-    df.final = bind_rows(df.final, fp_layer)
-    
+  } else if (reservoir == "BVR") {
+    depths = seq(0.1, 10, by = 0.3)
+  } else if (reservoir == "CCR") {
+    depths = seq(0.1, 20, by = 0.3)
+  } else if (reservoir == "GWR") {
+    depths = seq(0.1, 12, by = 0.3)
+  } else if (reservoir == "SHR") {
+    depths = seq(0.1, 30, by = 0.3)
   }
   
-} else if(reservoir == "CCR"){
-  
-  depths = seq(0.1, 20, by = 0.3)
-  df.final<-data.frame()
-  
-  for (i in 1:length(depths)){
-    
-    fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-    
-    # Bind each of the data layers together.
-    df.final = bind_rows(df.final, fp_layer)
-    
-  }
-  } else if(reservoir == "GWR"){
-  
-  depths = seq(0.1, 12, by = 0.3)
-  df.final<-data.frame()
-  
-  for (i in 1:length(depths)){
-    
-    fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-    
-    # Bind each of the data layers together.
-    df.final = bind_rows(df.final, fp_layer)
-    
-  }
-  } else if(reservoir == "SHR"){
-  
-  depths = seq(0.1, 30, by = 0.3)
-  df.final<-data.frame()
-  
-  for (i in 1:length(depths)){
-    
-    fp_layer<-fp %>% group_by(CastID) %>% slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
-    
-    # Bind each of the data layers together.
-    df.final = bind_rows(df.final, fp_layer)
-    
-  } 
-  
+  # Create depth-sliced dataframe
+  df.final <- data.frame()
+  for (i in 1:length(depths)) {
+    fp_layer <- fp %>%
+      group_by(CastID) %>%
+      slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
+    df.final <- bind_rows(df.final, fp_layer)
   }
   
-  #wrangle final dataframe for plotting
-  # Re-arrange the data frame by date
+  # Wrangle for plotting
   fp_new <- arrange(df.final, DateTime)
-
-  # Round each extracted depth to the nearest 10th. 
   fp_new$Depth_m <- round(as.numeric(fp_new$Depth_m), digits = 0.5)
-  
-  # Convert to DOY
-  fp_new$DOY <- yday(fp_new$DateTime)
+  fp_new$Date <- as.Date(fp_new$DateTime)
   
   fig_title <- paste(reservoir, year, "Site", site, z, sep = " ")
   
-  interp <- interp(x=fp_new$DOY, y = fp_new$Depth_m, z = unlist(fp_new[z]),
-                      xo = seq(min(fp_new$DOY), max(fp_new$DOY), by = .1), 
-                      yo = seq(min(fp_new$Depth_m), max(fp_new$Depth_m), by = 0.01),
-                      extrap = T, linear = T, duplicate = "strip")
-interp <- interp2xyz(interp, data.frame=T)
+  # Interpolation with dates
+  interp <- interp(
+    x = as.numeric(fp_new$Date),  # convert Date to numeric for interp()
+    y = fp_new$Depth_m,
+    z = unlist(fp_new[z]),
+    xo = seq(min(as.numeric(fp_new$Date)), max(as.numeric(fp_new$Date)), by = 1),
+    yo = seq(min(fp_new$Depth_m), max(fp_new$Depth_m), by = 0.01),
+    extrap = TRUE, linear = TRUE, duplicate = "strip"
+  )
   
-  p1 <- ggplot(interp, aes(x=x, y=y))+
-  geom_raster(aes(fill=z))+
-  scale_y_reverse(expand = c(0,0))+
-  scale_x_continuous(expand = c(0, 0)) +
-  scale_fill_gradientn(colours = blue2green2red(60), na.value="gray")+
-  labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill=expression(paste(mu,g/L)))+
-  theme_bw()
-
-print(p1)
-
+  interp <- interp2xyz(interp, data.frame = TRUE)
+  interp$x <- as.Date(interp$x, origin = "1970-01-01")  # convert back to Date
+  
+  # Plot
+  p1 <- ggplot(interp, aes(x = x, y = y)) +
+    geom_raster(aes(fill = z)) +
+    scale_y_reverse(expand = c(0, 0)) +
+    scale_x_date(date_labels = "%b", date_breaks = "1 month", expand = c(0, 0)) +
+    scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray") +
+    labs(x = "Month", y = "Depth (m)", title = fig_title,
+         fill = expression(paste(mu, g/L))) +
+    theme_bw()
+  
+  print(p1)
 }
+
 ```
 
 ## Visualize current year at a glance
 
 ```{r visualization of current year at a glance}
 flora_heatmap(fp_data = current_df, reservoir = "FCR", year = 2024, site = 50, z = "TotalConc_ugL")
-flora_heatmap(fp_data = current_df, reservoir = "FCR", year = 2024, site = 40, z = "TotalConc_ugL")
-flora_heatmap(fp_data = current_df, reservoir = "FCR", year = 2024, site = 30, z = "TotalConc_ugL")
-flora_heatmap(fp_data = current_df, reservoir = "FCR", year = 2024, site = 20, z = "TotalConc_ugL")
-flora_heatmap(fp_data = current_df, reservoir = "FCR", year = 2024, site = 10, z = "TotalConc_ugL")
 flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2024, site = 50, z = "TotalConc_ugL")
+
 ```
 
 ## Visualize a previous year at a glance

@@ -12,6 +12,7 @@ source("interpolate_variable.R")
 source("data_availability_function.R")
 
 
+
 #need to update links for all the data now
 
 #### Loading Data  ####
@@ -105,11 +106,7 @@ phytos2018 <- current_df %>%
   filter(!(CastID == 592))|> #filter out weird drop in 2017
   filter(!(CastID == 395))
 
-filtered<- 
-
 write.csv(phytos, "phytos.csv", row.names = FALSE)
-
-
 
 ####flora instrument data availability####
 
@@ -674,6 +671,10 @@ pwmgslyccntb <- pwmgslyccnt|>
 
 ####Peak.width####
 #use Totals_mean
+#calculate the metrics on the actual observed profiles 
+#don't interpolate 
+
+#maybe think about using the mean 
 
 for_peaks <- pwmgslyccntb|>
   group_by(Date) %>%
