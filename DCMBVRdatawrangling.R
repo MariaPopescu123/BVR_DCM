@@ -17,9 +17,9 @@ source("data_availability_function.R")
 
 #### Loading Data  ####
 
-#ctd data https://portal.edirepository.org/nis/metadataviewer?packageid=edi.200.14
-#not updated for 2024
-CTD <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/200/14/0432a298a90b2b662f26c46071f66b8a")
+#ctd data https://portal.edirepository.org/nis/codeGeneration?packageId=edi.200.15&statisticalFileType=r
+#updated 2025
+CTD <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/200/15/9d741c9cced69cfd609c473ada2812b1")
 
 #flora data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.272.9
 #nonupdated
@@ -28,15 +28,10 @@ current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/8/035
 #published 2025
 current_df <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/272/9/f246b36c591a888cc70ebc87a5abbcb7")
 
-# metals data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.455.8
-metalsdf <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/455/8/9c8c61b003923f4f03ebfe55cea8bbfd")
+# metals data https://portal.edirepository.org/nis/codeGeneration?packageId=edi.455.9&statisticalFileType=r
+#updated 2025
+metalsdf <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/455/9/9a072c4e4af39f96f60954fc4f7d8be5")
 #removed flags for 68 as per Cece's advice
-
-#ghgs data https://portal.edirepository.org/nis/mapbrowse?packageid=edi.551.8
-ghgs <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/551/8/454c11035c491710243cae0423efbe7b")
-#not sure whether or not to remove those with flags 3 and 4
-#3 = The difference between the reps are above the limit of quantification and >30% and <50% different from each other. Both replicates were retained but flagged
-#4 = The difference between the reps are above the limit of quantification and >50% different from each other. Both replicates were retained but flagged
 
 #secchi data https://portal.edirepository.org/nis/mapbrowse?scope=edi&identifier=198&revision=13
 #updated 2025
@@ -56,14 +51,9 @@ metdata <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/389/8/d4c74b
 #bathymetry data for BVR https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1254.1
 bath <- read.csv("https://portal.edirepository.org/nis/dataviewer?packageid=edi.1254.1&entityid=f7fa2a06e1229ee75ea39eb586577184")
 
-#waterlevel data
-wtrlvl <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/725/4/43476abff348c81ef37f5803986ee6e1") 
-
-#waterlevel data using the pressure sensor (platform data) https://portal.edirepository.org/nis/metadataviewer?packageid=edi.725.4
-#for past 2020
-BVRplatform <- read.csv("https://portal.edirepository.org/nis/dataviewer?packageid=edi.725.4&entityid=9adadd2a7c2319e54227ab31a161ea12")
 
 ####weekly dataframe for interpolation####
+#this will be used to grab values only for where we are missing data
 start_date <- as.Date("2014-01-01")
 end_date <- as.Date("2024-12-31")
 
@@ -99,13 +89,6 @@ phytos <- current_df %>%
   mutate(Year = year(Date))|>
   mutate(DOY = yday(Date))
 
-phytos2018 <- current_df %>% 
-  filter(Reservoir == "BVR", Site == 50)%>%
-  mutate(Date  = as_date(DateTime)) |> 
-  filter((hour(DateTime) >= 8), (hour(DateTime) <= 18))|>
-  filter(!(CastID == 592))|> #filter out weird drop in 2017
-  filter(!(CastID == 395))
-
 write.csv(phytos, "phytos.csv", row.names = FALSE)
 
 ####flora instrument data availability####
@@ -115,7 +98,7 @@ plot_dat <- phytos %>%
   filter(!is.na(TotalConc_ugL)) %>%
   mutate(Year = year(Date), 
          DayOfYear = yday(Date))|> # Extract year and day of the year
-  select(Date, Year, DayOfYear, TotalConc_ugL, Depth_m)
+  select(Date, Year, Week, DayOfYear, TotalConc_ugL, Depth_m)
 
 # Find the maximum TotalConc_ugL value for each year
 max_totals_per_year <- plot_dat %>%
@@ -140,8 +123,292 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   geom_vline(xintercept = 133, linetype = "dashed", color = "red") +  # Vertical dashed line at DayOfYear 133
   geom_vline(xintercept = 286, linetype = "dashed", color = "red")  # Vertical dashed line at DayOfYear 286
 
-#see that the data is dispersed at random intervals (and also different depths)
-#because of this going to interpolate and join this to a weekly dataframe that has all the same depths
+#see that the data is dispersed at random intervals
+####choosing casts and calculating peaks####
+#1. Look at every cast for every year and remove casts that do not make sense
+#2. Calculate peak metrics for each cast (peak depth, width, and magnitude)
+#3. Visually check all casts and each metric to make sure it makes sense
+#4. Average the peak metrics together (if appropriate)
+#5. New data frame with one set of peak metrics for each week that we have data
+
+
+#plot each one for cast selection 
+
+# Make sure the Figs directory exists
+if (!dir.exists("Figs")) {
+  dir.create("Figs")
+}
+
+# Prepare your data with FacetID
+DCM_metrics <- phytos |>
+  select(Reservoir, Site, Date, Week, CastID, Depth_m, TotalConc_ugL) |>
+  group_by(Reservoir, Date, Site) |>
+  mutate(FacetID = paste(CastID, Reservoir, Site, Date, "Week", Week, sep = " ")) |>
+  ungroup()
+
+# Get unique years in the dataset
+years <- unique(year(DCM_metrics$Date))
+
+# Loop over each year
+for (yr in years) {
+  
+  # Filter data for the year
+  test <- DCM_metrics |>
+    filter(year(Date) == yr)
+  
+  # Skip if there's no data
+  if (nrow(test) == 0) next
+  
+  # Create plot
+  plot_casts <- ggplot(test, aes(x = TotalConc_ugL, y = Depth_m)) +
+    geom_path() +
+    scale_y_reverse() +
+    theme_bw() +
+    facet_wrap(vars(FacetID)) +
+    xlab("micrograms per liter") +
+    ylab("Depth (m)") +
+    ggtitle(paste(yr, "raw casts"))
+  
+  # Save plot
+  ggsave(filename = paste0("Figs/", yr, "_raw_casts.png"),
+         plot = plot_casts,
+         width = 12,
+         height = 10,
+         dpi = 300)
+}
+
+#notes on casts
+#casts to remove: 467, 814, 856, 920, 1149 
+
+DCM_metrics_filtered <- DCM_metrics |>
+  filter(!CastID %in% c(467, 814, 856, 920, 1149)) |>
+  mutate(CastID = case_when(
+    CastID == 485 ~ 484,  # Change 485 to 484
+    CastID == 492 ~ 493,  # Combine 492 and 493
+    CastID == 499 ~ 500,  # Combine 499 and 500
+    CastID == 603 ~ 604,  # Combine 603 and 604
+    TRUE ~ CastID          # Keep other values unchanged
+  ))|>
+  mutate(DOY = yday(Date), Year = year(Date))|>
+  filter(DOY > 133, DOY < 285)
+
+#question about how to address casts that don't qualify as a bloom. They won't calculate metrics
+#will RandomForest assume a bloom just didn't happen?
+#does there need to be a component that first predicts whether or not a bloom will happen?
+#and then if yes 
+
+#join waterlevel because this will be important for peak metrics
+water_level <- read.csv("water_level.csv")|>
+  mutate(Date = as_date(Date))|>
+  select(Week, Year, WaterLevel_m)
+
+DCM_metrics_filtered <- DCM_metrics_filtered|>
+  left_join(water_level, by = c("Week", "Year"))
+
+####Peak.depth and max_conc####
+DCM_metrics_depth <- DCM_metrics_filtered|>
+  group_by(CastID) %>%
+  mutate(max_conc = max(TotalConc_ugL, na.rm = TRUE))|> #concentration of totals at totals DCM
+  mutate(Totals_DCM_depth = ifelse(TotalConc_ugL == max_conc, Depth_m, NA_real_))|>
+  fill(max_conc, .direction = "downup")|>
+  fill(Totals_DCM_depth, .direction = "downup")|>
+  ungroup()
+
+####Peak.width####
+#use Totals_mean
+#calculate the metrics on the actual observed profiles 
+#don't interpolate 
+
+#maybe think about using the mean 
+
+for_peaks <- pwmgslyccntb|>
+  group_by(Date) %>%
+  mutate(
+    totals_med = median(TotalConc_ugL, na.rm = TRUE),  # Calculate the median, excluding NA values
+    totals_sd = sd(TotalConc_ugL, na.rm = TRUE),       # Calculate the standard deviation
+    totals_mean = mean(TotalConc_ugL, na.rm = TRUE),   # Calculate the mean
+    totals_mean_plus_sd = totals_mean + totals_sd,          # Calculate mean + sd
+    peak.top = as.integer(Depth_m <= Totals_DCM_depth & TotalConc_ugL > totals_mean_plus_sd),  # Create binary indicator
+    peak.bottom = as.integer(Depth_m >= Totals_DCM_depth & TotalConc_ugL > totals_mean_plus_sd),
+    
+    # Apply condition: If Totals_DCM_conc < 40, set peak.top and peak.bottom to 0
+    peak.top = if_else(Totals_DCM_conc < 40, 0, peak.top),
+    peak.bottom = if_else(Totals_DCM_conc < 40, 0, peak.bottom),
+    
+    # Replace peak.top and peak.bottom with Depth_m if indicator is 1
+    peak.top = if_else(peak.top == 1, Depth_m, 0),
+    peak.bottom = if_else(peak.bottom == 1, Depth_m, 0),
+    
+    # Get the minimum peak.top value, replace Inf with NA if all are NA or 0
+    peak.top = if_else(any(peak.top != 0), 
+                       min(peak.top[peak.top != 0], na.rm = TRUE), 
+                       NA_real_),
+    
+    # Get the maximum peak.bottom value, replace -Inf with NA if all are NA or 0
+    peak.bottom = if_else(any(peak.bottom != 0), 
+                          max(peak.bottom[peak.bottom != 0], na.rm = TRUE), 
+                          NA_real_),
+    
+    # Calculate peak width and handle infinite values by replacing them with NA
+    peak.width = peak.bottom - peak.top,
+    peak.width = if_else(is.na(peak.top) | is.na(peak.bottom), NA_real_, peak.width)
+  ) %>%
+  ungroup()  # Ungroup after mutations
+
+
+####Peak.magnitude####
+
+final_data_peaks <- for_peaks|>
+  group_by(Date)|>
+  mutate(peak.magnitude = max(TotalConc_ugL))|>
+  ungroup()|>
+  select(Date, Depth_m, totals_mean, totals_sd, totals_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many totals there are at the DCM for total_conc
+
+
+library(lubridate)
+conflicts_prefer(dplyr::filter)
+library(dplyr)
+
+pwmgslyccntbp <- pwmgslyccntb |> #with peak calculations
+  left_join(final_data_peaks, by = c("Date", "Depth_m")) |>
+  mutate(peak.width = if_else(peak.width < .3*WaterLevel_m, peak.width, NA_real_)) |>
+  group_by(Date, Depth_m) |>
+  mutate(DCM = if_else(Depth_m == Totals_DCM_depth, TRUE, FALSE))|>
+  filter(DOY > 133, DOY < 286)
+
+
+
+
+####boxplots depth of DCM####
+
+#need to use raw data for this to work 
+
+#for june, july, august
+boxplot_Data <- DCM_final |>
+  filter(Totals_DCM_conc > 20) |>
+  filter(month(Date)>5, month(Date)<9) |>
+  mutate(Year = year(Date), Month = month(Date))|>
+  group_by(Year, Month)|>
+  mutate(monthly_avg = mean(Totals_DCM_conc))
+
+# Calculate max_legend_value for the color scale limits
+max_legend_value <- max(boxplot_Data$Totals_DCM_conc, na.rm = TRUE)
+
+# Create the multi-panel boxplot with an overlay of colored points for Totals_DCM_conc
+ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
+                         y = Totals_DCM_depth, 
+                         fill = monthly_avg)) +
+  geom_boxplot() +  # Boxplot with filled colors based on Totals_DCM_conc
+  facet_wrap(~ Year) +  # Create a panel for each year
+  scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to boxes
+  scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
+  ylim(10, 0) +  # Set the y-axis limits, reversing the range
+  labs(x = "Month", y = "DCM Depth", fill = "Total's µg/L") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+#visualizing just one box per year
+
+boxplot_Data <- DCM_final |>
+  filter(Totals_DCM_conc > 20) |>
+  mutate(DayOfYear = yday(Date))|>
+  filter(DayOfYear>133, DayOfYear<286) |>
+  mutate(Year = year(Date), Month = month(Date))
+
+label_data <- boxplot_Data %>%
+  group_by(Year) %>%
+  summarise(n = n())  # Calculate the number of data points per year
+
+# Plot with labels for the number of data points
+ggplot(boxplot_Data, aes(x = factor(Year), y = Totals_DCM_depth)) +
+  geom_boxplot() +
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
+  ggtitle(label = "DCM Depths only displaying totals > 20") +
+  ylim(10, 0) +  # Set the y-axis limits, reversing the range
+  labs(x = "Year", y = "DCM Depth", color = "totals ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(data = label_data, aes(x = factor(Year), y = 0.5, label = paste0("n = ", n)), 
+            vjust = -0.5)  # Add labels at the top of each column
+
+####boxplot width of DCM####
+
+boxplot_Data <- DCM_final |>
+  filter(Totals_DCM_conc > 20) |>
+  filter(month(Date)>5, month(Date)<9) |>
+  mutate(Year = year(Date), Month = month(Date))|>
+  filter(peak.width<2.5)
+
+# Create the multi-panel boxplot with an overlay of colored points for Totals_DCM_conc
+ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
+                         y = peak.width)) +
+  geom_boxplot() +
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  facet_wrap(~ Year) +  # Create a panel for each year
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  labs(x = "Month", y = "Peak Width", color = "totals ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#one box per year
+boxplot_Data <- DCM_final |>
+  filter(Totals_DCM_conc > 20) |>
+  mutate(DayOfYear = yday(Date))|>
+  filter(DayOfYear>133, DayOfYear<286) |>
+  mutate(Year = year(Date), Month = month(Date))|>
+  filter(peak.width<2.5)
+
+label_data <- boxplot_Data %>%
+  group_by(Year) %>%
+  summarise(n = n())  # Calculate the number of data points per year
+
+ggplot(boxplot_Data, aes(x = factor(Year), y = peak.width)) +
+  geom_boxplot() +
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  ggtitle(label = "Peak Width only displaying totals > 20") +
+  ylim(0, 5) +  # Set the y-axis limits
+  labs(x = "Year", y = "Peak Width", color = "totals ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(data = label_data, aes(x = factor(Year), y = 4.5, label = paste0("n = ", n)), 
+            vjust = -0.5)  # Adjust y position for labels at the top
+
+
+####boxplots magnitude of DCM####
+
+#for June-August
+
+boxplot_Data <- DCM_final |>
+  filter(Totals_DCM_conc > 20) |>
+  filter(month(Date)>5, month(Date)<9) |>
+  mutate(Year = year(Date), Month = month(Date))
+
+ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
+                         y = peak.magnitude)) +
+  geom_boxplot() +
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  facet_wrap(~ Year) +  # Create a panel for each year
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  labs(x = "Month", y = "Peak Magnitude", color = "totals ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#visualizing just one box per year
+
+boxplot_Data <- DCM_final |>
+  filter(Totals_DCM_conc > 20) |>
+  mutate(DayOfYear = yday(Date))|>
+  filter(DayOfYear>133, DayOfYear<286) |>
+  mutate(Year = year(Date), Month = month(Date))
+
+ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
+  geom_boxplot() +
+  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
+  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
+  ggtitle(label = "Peak Magnitudes only displaying totals > 20")+
+  ylim(0, 150) +  # Set the y-axis limits, reversing the range
+  labs(x = "Year", y = "Peak Magnitude", color = "totals ugL") +  # Label the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
 
 
 #list of DOY for interpolation purpose
@@ -149,83 +416,6 @@ DOY_list <- 32:334  # DOYs from February 1 to November 30
 years <- unique(year(wtrlvl$Date))
 DOY_year_ref <- expand.grid(Year = years, DOY = DOY_list)|>
   arrange(Year, DOY)
-
-#add water level to data frame to use as the max depth for creating sequence of depths to interpolate each cast to
-####Waterlevel####
-wtrlvl <- wtrlvl |> 
-  mutate(Date = as.POSIXct(DateTime))
-
-#Add DOY and Year columns to wtrlvl2, then join with DOY_year_ref
-wtrlvl2 <- wtrlvl |>
-  mutate(Year = year(Date), DOY = yday(Date))
-
-#join and interpolate WaterLevel_m for each DOY in each year
-wtrlvl2_interpolated <- DOY_year_ref %>%
-  left_join(wtrlvl2, by = c("Year", "DOY")) %>%
-  group_by(Year) %>%
-  mutate(
-    WaterLevel_m = zoo::na.spline(WaterLevel_m, x = DOY, na.rm = FALSE)
-  ) %>%
-  filter(Year > 2013) %>%
-  arrange(Year, DOY)|>
-  select(Year, DOY, WaterLevel_m)
-
-#now for past 2020 
-#Add DOY and Year columns to wtrlvl2, then join with DOY_year_ref
-BVRplatform2 <- BVRplatform |>
-  filter(Flag_LvlPressure_psi_13 != 5)|>#filter flags, questionable value but left in the dataset
-  mutate(Date = as.Date(DateTime))|>
-  mutate(Year = year(Date), DOY = yday(Date))
-
-#join and interpolate WaterLevel_m for each DOY in each year
-BVRplatform2_interpolated <- DOY_year_ref |>
-  left_join(BVRplatform2, by = c("Year" = "Year", "DOY" = "DOY")) |>
-  group_by(Year) |>
-  mutate(
-    LvlDepth_m_13 = zoo::na.spline(LvlDepth_m_13, x = DOY, na.rm = FALSE)
-  )|>
-  filter(Year > 2019, Site == 50)|>
-  arrange(Year, DOY)|>
-  select(Year, DOY, DateTime, LvlDepth_m_13)
-
-water_levelsjoined <- expanded_dates|>
-  left_join(BVRplatform2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
-  left_join(wtrlvl2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
-  filter(Year>2013)
-
-water_levelscoalesced<- water_levelsjoined|>
-  mutate(WaterLevel_m = coalesce(LvlDepth_m_13,WaterLevel_m))|>
-  select(Year, DOY, WaterLevel_m)|>
-  group_by(Year, DOY)|>
-  summarise(WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE), .groups = "drop")
-
-
-#this has all the depths and all the days
-water_levels <- expanded_dates|>
-  left_join(water_levelscoalesced, by = c("Year", "DOY"))
-
-ggplot(water_levels, aes(x = Date, y = WaterLevel_m)) +
-  geom_line(color = "#2C3E50", size = .8) +  # Use a sophisticated dark blue-gray color
-  theme_minimal(base_size = 14) +  # Increase base font size for readability
-  theme(
-    panel.grid.major = element_line(color = "gray80", size = 0.3),  # Subtle grid lines
-    panel.grid.minor = element_blank(),  # Remove minor grid lines for a cleaner look
-    axis.title = element_text(face = "bold"),  # Bold axis titles
-    axis.text = element_text(color = "black"),  # Dark axis text for contrast
-    plot.title = element_text(face = "bold", size = 16, hjust = 0.5)  # Centered bold title
-  ) +
-  labs(
-    title = "Water Level Over Time",
-    x = "Date",
-    y = "Water Level (m)"
-  )
-
-#what was the water level before and after drawdown 
-waterlevel_2022 <- water_levels |>
-  filter(Year == 2022) |>
-  group_by(Date) |>
-  summarise(WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE))
-
 
 ####phyto interp####
 #1. first bind it to expanded_dates (this has all the depths and all the weeks I want to interpolate to)
@@ -269,17 +459,6 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   theme(panel.grid.minor = element_blank())+  # Optional: remove minor grid lines
   geom_vline(xintercept = 133, linetype = "dashed", color = "red") +  # Vertical dashed line at DayOfYear 133
   geom_vline(xintercept = 286, linetype = "dashed", color = "red")  # Vertical dashed line at DayOfYear 286
-
-#add it to the water_levels 
-phytos_waterlevel<- water_levels|>
-  left_join(phytos_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))|>
-  group_by(Year, Week) %>%
-  mutate(Totals_DCM_conc = max(TotalConc_ugL, na.rm = TRUE))|> #concentration of totals at totals DCM
-  mutate(Totals_DCM_depth = ifelse(TotalConc_ugL == Totals_DCM_conc, Depth_m, NA_real_))|>
-  fill(Totals_DCM_conc, .direction = "downup")|>
-  fill(Totals_DCM_depth, .direction = "downup")|>
-  ungroup()
-
 
 #### metals  ####
 metalsdf_filtered <- metalsdf |>
@@ -669,68 +848,6 @@ pwmgslyccntb <- pwmgslyccnt|>
   relocate(buoyancy_freq, .before = thermocline_depth)
 #need to make sure this makes sense
 
-####Peak.width####
-#use Totals_mean
-#calculate the metrics on the actual observed profiles 
-#don't interpolate 
-
-#maybe think about using the mean 
-
-for_peaks <- pwmgslyccntb|>
-  group_by(Date) %>%
-  mutate(
-    totals_med = median(TotalConc_ugL, na.rm = TRUE),  # Calculate the median, excluding NA values
-    totals_sd = sd(TotalConc_ugL, na.rm = TRUE),       # Calculate the standard deviation
-    totals_mean = mean(TotalConc_ugL, na.rm = TRUE),   # Calculate the mean
-    totals_mean_plus_sd = totals_mean + totals_sd,          # Calculate mean + sd
-    peak.top = as.integer(Depth_m <= Totals_DCM_depth & TotalConc_ugL > totals_mean_plus_sd),  # Create binary indicator
-    peak.bottom = as.integer(Depth_m >= Totals_DCM_depth & TotalConc_ugL > totals_mean_plus_sd),
-    
-    # Apply condition: If Totals_DCM_conc < 40, set peak.top and peak.bottom to 0
-    peak.top = if_else(Totals_DCM_conc < 40, 0, peak.top),
-    peak.bottom = if_else(Totals_DCM_conc < 40, 0, peak.bottom),
-    
-    # Replace peak.top and peak.bottom with Depth_m if indicator is 1
-    peak.top = if_else(peak.top == 1, Depth_m, 0),
-    peak.bottom = if_else(peak.bottom == 1, Depth_m, 0),
-    
-    # Get the minimum peak.top value, replace Inf with NA if all are NA or 0
-    peak.top = if_else(any(peak.top != 0), 
-                       min(peak.top[peak.top != 0], na.rm = TRUE), 
-                       NA_real_),
-    
-    # Get the maximum peak.bottom value, replace -Inf with NA if all are NA or 0
-    peak.bottom = if_else(any(peak.bottom != 0), 
-                          max(peak.bottom[peak.bottom != 0], na.rm = TRUE), 
-                          NA_real_),
-    
-    # Calculate peak width and handle infinite values by replacing them with NA
-    peak.width = peak.bottom - peak.top,
-    peak.width = if_else(is.na(peak.top) | is.na(peak.bottom), NA_real_, peak.width)
-  ) %>%
-  ungroup()  # Ungroup after mutations
-
-
-####Peak.magnitude####
-
-final_data_peaks <- for_peaks|>
-  group_by(Date)|>
-  mutate(peak.magnitude = max(TotalConc_ugL))|>
-  ungroup()|>
-  select(Date, Depth_m, totals_mean, totals_sd, totals_mean_plus_sd, peak.top, peak.bottom, peak.width, peak.magnitude) #this is unnecessary. saying how many totals there are at the DCM for total_conc
-
-
-library(lubridate)
-conflicts_prefer(dplyr::filter)
-library(dplyr)
-
-pwmgslyccntbp <- pwmgslyccntb |> #with peak calculations
-  left_join(final_data_peaks, by = c("Date", "Depth_m")) |>
-  mutate(peak.width = if_else(peak.width < .3*WaterLevel_m, peak.width, NA_real_)) |>
-  group_by(Date, Depth_m) |>
-  mutate(DCM = if_else(Depth_m == Totals_DCM_depth, TRUE, FALSE))|>
-  filter(DOY > 133, DOY < 286)
-
 ####final dataframe####
 
 #write.csv(final_data0,"./final_data0.csv",row.names = FALSE)
@@ -965,229 +1082,6 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
 
 looking<- final_data0|>
   filter(Date %in% c("2019-06-06"))
-
-
-
-####DCM depth every year####
-# Find the maximum TotalConc_ugL value for each day
-
-max_totals_per_day <- plot_dat %>%
-  group_by(Date) %>%
-  slice(which.max(TotalConc_ugL)) %>%
-  filter(DayOfYear > 133, DayOfYear < 285, TotalConc_ugL > 20) |>
-  ungroup()
-
-plot <- ggplot(max_totals_per_day, aes(x = DayOfYear, y = Depth_m, group = Year)) +
-  geom_line() +
-  geom_point(data = max_totals_per_year, aes(x = DayOfYear, y = Depth_m), 
-             color = "red", size = 6) +  # Increase point size
-  geom_text(data = max_totals_per_year, 
-            aes(x = DayOfYear, y = Depth_m, 
-                label = paste0("Max: ", round(TotalConc_ugL, 2), " µg/L\nDepth: ", Depth_m, " m")), 
-            vjust = -0.5, hjust = 0.5, color = "black", size = 4) +  # Increase text size
-  theme_bw() +
-  labs(x = "Day of Year", y = "Depth (m)", title = "DCM Depths Across Years (Only Showing Data with totals > 20)") +
-  scale_y_reverse(limits = c(10, 0)) +  # Invert y-axis from 0 to 10
-  scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
-  facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
-  theme(
-    text = element_text(size = 32),  # Double the size of all text
-    axis.title = element_text(size = 34),  # Increase axis title size
-    axis.text = element_text(size = 28),  # Increase axis label size
-    strip.text = element_text(size = 20),  # Increase facet label size
-    plot.title = element_text(size = 38, face = "bold"),  # Increase title size
-    legend.text = element_text(size = 10),  # Increase legend text size
-    legend.title = element_text(size = 28),  # Increase legend title size
-    panel.grid.minor = element_blank()  # Optional: remove minor grid lines
-  )
-
-ggsave("DCM_depth_across_years.png", plot, width = 20, height = 15, dpi = 300)
-
-####peak width every year####
-plot <- ggplot(DCM_final, aes(x = DOY, y = peak.width, group = Year)) +
-  geom_line() +
-  theme_bw() +
-  labs(x = "Day of Year", y = "Peak Width (m)", title = "DCM Widths Across Years (Only Showing Data with totals > 20)") +
-  scale_y_continuous(limits = c(0, 4)) +  
-  scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
-  facet_wrap(~ Year, ncol = 2) +  # Create separate panels for each year
-  theme(
-    text = element_text(size = 32),  # Double the size of all text
-    axis.title = element_text(size = 34),  # Increase axis title size
-    axis.text = element_text(size = 28),  # Increase axis label size
-    strip.text = element_text(size = 20),  # Increase facet label size
-    plot.title = element_text(size = 38, face = "bold"),  # Increase title size
-    legend.text = element_text(size = 10),  # Increase legend text size
-    legend.title = element_text(size = 28),  # Increase legend title size
-    panel.grid.minor = element_blank()  # Optional: remove minor grid lines
-  )
-
-ggsave("Peak_width_across_years.png", plot, width = 20, height = 15, dpi = 300)
-
-
-####peak magnitude####
-max_totals_per_year <- DCM_final %>%
-  group_by(Year) %>%
-  slice(which.max(TotalConc_ugL)) %>%
-  filter(DOY > 133, DOY < 285, TotalConc_ugL > 20) |>
-  ungroup()  
-
-plot <- ggplot(DCM_final, aes(x = DOY, y = Totals_DCM_conc, group = Year)) +
-  geom_line() +
-  theme_bw() +
-  geom_point(data = max_totals_per_year, aes(x = DOY, y = TotalConc_ugL), 
-             color = "red", size = 6) +  # Increase point size
-  geom_text(data = max_totals_per_year, 
-            aes(x = DOY, y = Depth_m, 
-                label = paste0("Max: ", round(TotalConc_ugL, 2))), 
-            vjust = -0.5, hjust = 0.5, color = "black", size = 5) +  # Adjust text position further
-  labs(x = "Day of Year", y = "Peak Magnitude (m)", title = "Peak Magnitude Across Years (Only Showing Data with totals > 20)") +
-  scale_y_continuous(limits = c(0, 400)) +  
-  scale_x_continuous(breaks = seq(1, 365, by = 30)) +  # Adjust x-axis breaks
-  facet_wrap(~ Year, ncol = 5) +  # Create separate panels for each year
-  theme(
-    text = element_text(size = 32),  # Double the size of all text
-    axis.title = element_text(size = 34),  # Increase axis title size
-    axis.text = element_text(size = 28),  # Increase axis label size
-    strip.text = element_text(size = 20),  # Increase facet label size
-    plot.title = element_text(size = 38, face = "bold"),  # Increase title size
-    legend.text = element_text(size = 10),  # Increase legend text size
-    legend.title = element_text(size = 28),  # Increase legend title size
-    panel.grid.minor = element_blank()  # Optional: remove minor grid lines
-  )
-
-ggsave("Peak Magnitude_across_years.png", plot, width = 30, height = 10, dpi = 300)
-
-looking <- DCM_final|>
-  filter(!is.na(peak.magnitude))|>
-  select(Date, peak.magnitude)
-####boxplots depth of DCM####
-
-#need to use raw data for this to work 
-
-#for june, july, august
-boxplot_Data <- DCM_final |>
-  filter(Totals_DCM_conc > 20) |>
-  filter(month(Date)>5, month(Date)<9) |>
-  mutate(Year = year(Date), Month = month(Date))|>
-  group_by(Year, Month)|>
-  mutate(monthly_avg = mean(Totals_DCM_conc))
-
-# Calculate max_legend_value for the color scale limits
-max_legend_value <- max(boxplot_Data$Totals_DCM_conc, na.rm = TRUE)
-
-# Create the multi-panel boxplot with an overlay of colored points for Totals_DCM_conc
-ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
-                         y = Totals_DCM_depth, 
-                         fill = monthly_avg)) +
-  geom_boxplot() +  # Boxplot with filled colors based on Totals_DCM_conc
-  facet_wrap(~ Year) +  # Create a panel for each year
-  scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to boxes
-  scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
-  ylim(10, 0) +  # Set the y-axis limits, reversing the range
-  labs(x = "Month", y = "DCM Depth", fill = "Total's µg/L") +  # Label the legend
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
-#visualizing just one box per year
-
-boxplot_Data <- DCM_final |>
-  filter(Totals_DCM_conc > 20) |>
-  mutate(DayOfYear = yday(Date))|>
-  filter(DayOfYear>133, DayOfYear<286) |>
-  mutate(Year = year(Date), Month = month(Date))
-
-label_data <- boxplot_Data %>%
-  group_by(Year) %>%
-  summarise(n = n())  # Calculate the number of data points per year
-
-# Plot with labels for the number of data points
-ggplot(boxplot_Data, aes(x = factor(Year), y = Totals_DCM_depth)) +
-  geom_boxplot() +
-  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
-  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  scale_y_reverse(name = "DCM Depth (inverted)") +  # Reverse the y-axis
-  ggtitle(label = "DCM Depths only displaying totals > 20") +
-  ylim(10, 0) +  # Set the y-axis limits, reversing the range
-  labs(x = "Year", y = "DCM Depth", color = "totals ugL") +  # Label the legend
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  geom_text(data = label_data, aes(x = factor(Year), y = 0.5, label = paste0("n = ", n)), 
-            vjust = -0.5)  # Add labels at the top of each column
-
-####boxplot width of DCM####
-
-boxplot_Data <- DCM_final |>
-  filter(Totals_DCM_conc > 20) |>
-  filter(month(Date)>5, month(Date)<9) |>
-  mutate(Year = year(Date), Month = month(Date))|>
-  filter(peak.width<2.5)
-
-# Create the multi-panel boxplot with an overlay of colored points for Totals_DCM_conc
-ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
-                         y = peak.width)) +
-  geom_boxplot() +
-  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
-  facet_wrap(~ Year) +  # Create a panel for each year
-  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  labs(x = "Month", y = "Peak Width", color = "totals ugL") +  # Label the legend
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-#one box per year
-boxplot_Data <- DCM_final |>
-  filter(Totals_DCM_conc > 20) |>
-  mutate(DayOfYear = yday(Date))|>
-  filter(DayOfYear>133, DayOfYear<286) |>
-  mutate(Year = year(Date), Month = month(Date))|>
-  filter(peak.width<2.5)
-
-label_data <- boxplot_Data %>%
-  group_by(Year) %>%
-  summarise(n = n())  # Calculate the number of data points per year
-
-ggplot(boxplot_Data, aes(x = factor(Year), y = peak.width)) +
-  geom_boxplot() +
-  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
-  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  ggtitle(label = "Peak Width only displaying totals > 20") +
-  ylim(0, 5) +  # Set the y-axis limits
-  labs(x = "Year", y = "Peak Width", color = "totals ugL") +  # Label the legend
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  geom_text(data = label_data, aes(x = factor(Year), y = 4.5, label = paste0("n = ", n)), 
-            vjust = -0.5)  # Adjust y position for labels at the top
-
-
-####boxplots magnitude of DCM####
-
-#for June-August
-
-boxplot_Data <- DCM_final |>
-    filter(Totals_DCM_conc > 20) |>
-  filter(month(Date)>5, month(Date)<9) |>
-  mutate(Year = year(Date), Month = month(Date))
-
-ggplot(boxplot_Data, aes(x = factor(Month, labels = c("June", "July", "August")), 
-                         y = peak.magnitude)) +
-  geom_boxplot() +
-  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
-  facet_wrap(~ Year) +  # Create a panel for each year
-  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  labs(x = "Month", y = "Peak Magnitude", color = "totals ugL") +  # Label the legend
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-#visualizing just one box per year
-
-boxplot_Data <- DCM_final |>
-  filter(Totals_DCM_conc > 20) |>
-  mutate(DayOfYear = yday(Date))|>
-  filter(DayOfYear>133, DayOfYear<286) |>
-  mutate(Year = year(Date), Month = month(Date))
-
-ggplot(boxplot_Data, aes(x = factor(Year), y = peak.magnitude)) +
-  geom_boxplot() +
-  geom_point(aes(color = Totals_DCM_conc), position = position_jitter(width = 0.2), size = 2) +  # Add points with color representing concentration
-  scale_color_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +  # Apply color gradient to points
-  ggtitle(label = "Peak Magnitudes only displaying totals > 20")+
-  ylim(0, 150) +  # Set the y-axis limits, reversing the range
-  labs(x = "Year", y = "Peak Magnitude", color = "totals ugL") +  # Label the legend
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
 #### plot TC, DCM, and PZ####

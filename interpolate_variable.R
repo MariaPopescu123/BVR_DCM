@@ -2,15 +2,36 @@
 #make sure to clean up data before hand. remove flags 
 
 
-interpolate_variable <- function(data, variable_list, expanded_dates) {
+interpolate_variable <- function(data, variable_list) {
   
   # data <- metalsdf_filtered
   # variable_list <- c("SFe_mgL", "TFe_mgL")
   # expanded_dates <- expanded_dates
   
-  if (missing(expanded_dates) || !exists("expanded_dates")) {
-    stop("Error: `expanded_dates` is required but not provided.")#do i need this
-  }
+  ####weekly dataframe for interpolation####
+  #this will be used to grab values only for where we are missing data
+  start_date <- as.Date("2014-01-01")
+  end_date <- as.Date("2024-12-31")
+  
+  weekly_dates <- data.frame(
+    Date_fake = seq.Date(from = start_date, to = end_date, by = "week")
+  ) %>%
+    mutate(Year = year(Date_fake),
+           Week = week(Date_fake))|>
+    mutate(Depth_m = NA)
+  
+  Depth_fake = seq(0, 13, by = 0.1)
+  
+  # Expand grid to get each date with each depth
+  expanded_dates <- expand_grid(Date_fake = weekly_dates$Date_fake, Depth_m = Depth_fake)
+  
+  # Add year and week info to the expanded data
+  expanded_dates <- expanded_dates %>%
+    mutate(Year = year(Date_fake),
+           Week = week(Date_fake),
+           DOY = yday(Date_fake), 
+           Date = Date_fake)|>
+    select(-Date_fake)
   
   data <- data |> #changing this temporarily 
     filter(Reservoir == "BVR", Site == 50) |>
