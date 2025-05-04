@@ -4,9 +4,9 @@
 #waterlevel data
 wtrlvl <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/725/4/43476abff348c81ef37f5803986ee6e1") 
 
-#waterlevel data using the pressure sensor (platform data) https://portal.edirepository.org/nis/metadataviewer?packageid=edi.725.4
+#waterlevel data using the pressure sensor (platform data) https://portal.edirepository.org/nis/codeGeneration?packageId=edi.725.5&statisticalFileType=r
 #for past 2020
-BVRplatform <- read.csv("https://portal.edirepository.org/nis/dataviewer?packageid=edi.725.4&entityid=9adadd2a7c2319e54227ab31a161ea12")
+BVRplatform <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/725/5/f649de0e8a468922b40dcfa34285055e")
 
 
 #list of DOY for interpolation purpose
@@ -54,6 +54,33 @@ BVRplatform2_interpolated <- DOY_year_ref |>
   arrange(Year, DOY)|>
   select(Year, DOY, DateTime, LvlDepth_m_13)
 
+
+#make data frame for waterlevels
+start_date <- as.Date("2014-01-01")
+end_date <- as.Date("2024-12-31")
+
+weekly_dates <- data.frame(
+  Date_fake = seq.Date(from = start_date, to = end_date, by = "week")
+) %>%
+  mutate(Year = year(Date_fake),
+         Week = week(Date_fake))|>
+  mutate(Depth_m = NA)
+
+Depth_fake = seq(0, 13, by = 0.1)
+
+# Expand grid to get each date with each depth
+expanded_dates <- expand_grid(Date_fake = weekly_dates$Date_fake, Depth_m = Depth_fake)
+
+# Add year and week info to the expanded data
+expanded_dates <- expanded_dates %>%
+  mutate(Year = year(Date_fake),
+         Week = week(Date_fake),
+         DOY = yday(Date_fake), 
+         Date = Date_fake)|>
+  select(-Date_fake)
+
+
+
 water_levelsjoined <- expanded_dates|>
   left_join(BVRplatform2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
   left_join(wtrlvl2_interpolated, by = c("Year", "DOY"), relationship = "many-to-many")|>
@@ -64,7 +91,6 @@ water_levelscoalesced<- water_levelsjoined|>
   select(Year, DOY, WaterLevel_m)|>
   group_by(Year, DOY)|>
   summarise(WaterLevel_m = mean(WaterLevel_m, na.rm = TRUE), .groups = "drop")
-
 
 #this has all the depths and all the days
 water_level <- expanded_dates|>
