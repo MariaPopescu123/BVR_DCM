@@ -44,11 +44,11 @@ ysi_profiles <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/198/13/
 chemistry <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/199/12/a33a5283120c56e90ea414e76d5b7ddb")
 
 #meteorological data from FCR https://portal.edirepository.org/nis/mapbrowse?packageid=edi.389.8
-options(timeout = 300)
-metdata <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/389/8/d4c74bbb3b86ea293e5c52136347fbb0")
+#options(timeout = 300)
+#metdata <- read.csv("https://pasta.lternet.edu/package/data/eml/edi/389/8/d4c74bbb3b86ea293e5c52136347fbb0")
 
 #bathymetry data for BVR https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1254.1
-bath <- read.csv("https://portal.edirepository.org/nis/dataviewer?packageid=edi.1254.1&entityid=f7fa2a06e1229ee75ea39eb586577184")
+#bath <- read.csv("https://portal.edirepository.org/nis/dataviewer?packageid=edi.1254.1&entityid=f7fa2a06e1229ee75ea39eb586577184")
 
 
 #adding columns with total_conc max and the depth at which it occurs
@@ -446,6 +446,9 @@ RF_frame <- final_DCM_metrics|>
 
 
 #### metals  ####
+metalsdf <- metalsdf|>
+  mutate(Date = as.Date(DateTime))
+
 
 variables <- c("SFe_mgL", "TFe_mgL", "SMn_mgL")
 
@@ -545,15 +548,21 @@ data_availability(ysi_profiles, variables)
 variables <- c("DO_mgL","DOsat_percent", "Temp_C")
 ysi <- ysi_profiles|>
   select(-PAR_umolm2s, -ORP_mV, -Cond_uScm, -pH)|>
-  filter(Reservoir == "BVR", Site == 50)
+  filter(Reservoir == "BVR", Site == 50)|>
+  filter((hour(DateTime) >= 8), (hour(DateTime) <= 18))
+  #remove flags
 data_availability(ysi, variables)
 
 #####CTD#####
-CTDfiltered <- CTD|> #flag 2, instrument malfunction. haven't removed flags yet
-  filter(Reservoir == "BVR", Site == 50)|>
-  filter(!if_any(starts_with("Flag"), ~. == 68))|>
-  mutate(Date = as_date(DateTime))|>
-  filter(Reservoir == "BVR", Site == 50)
+CTDfiltered <- CTD |>
+  filter(Reservoir == "BVR", Site == 50) |>
+  filter(!if_any(starts_with("Flag"), ~ . == 68)) |>
+  mutate(
+    DateTime = ymd_hms(DateTime, tz = "UTC"),
+    Date = as_date(DateTime)
+  ) |>
+  filter(hour(DateTime) >= 8, hour(DateTime) <= 18)
+  
 variables <- c("DO_mgL", "PAR_umolm2s", "DOsat_percent", "Cond_uScm", "ORP_mV", 
                "pH", "Temp_C")
 data_availability(CTDfiltered, variables)
@@ -564,7 +573,7 @@ data_availability(CTDfiltered, variables)
 
 CTDtemp<- CTDfiltered|>
   mutate(Year = year(Date), Week = week(Date))|>
-  filter(Year %in% c(2014, 2015, 2016, 2019, 2022, 2023, 2024))|>
+  filter(Year %in% c(2014, 2015, 2016, 2019, 2022, 2023, 2024))|> #remove flags
   select(Date, Year, Week, Temp_C, Depth_m)
 
 ysitemp<- ysi%>%
@@ -572,29 +581,44 @@ ysitemp<- ysi%>%
   filter(Year %in% c(2017, 2018, 2020))|>
   select(Date, Year, Week, Temp_C, Depth_m)
 
-variables <- ("Temp_C")
-CTDtemp_summarised <- weekly_sum_variables(CTDtemp, variables)
-ysitemp_summarised <- weekly_sum_variables(ysitemp, variables)
+#coalesce 
 
-#to be joined to the RF frame
-temp_weekly_summary <- full_join(CTDtemp_summarised, ysitemp_summarised, by = c("Date", "Week", "Year")) |>
-  mutate(
-    depth_Temp_C_max = coalesce(depth_Temp_C_max.x, depth_Temp_C_max.y), 
-    depth_Temp_C_min = coalesce(depth_Temp_C_min.x, depth_Temp_C_min.y), 
-    Temp_C_max_val   = coalesce(Temp_C_max_val.x, Temp_C_max_val.y),
-    Temp_C_min_val   = coalesce(Temp_C_min_val.x, Temp_C_min_val.y),
-    Temp_C_range     = Temp_C_max_val - Temp_C_min_val
-  ) |>
-  select(-ends_with(".x"), -ends_with(".y"))
+temp_depths_coalesced <- full_join(ysitemp, CTDtemp, by = c("Date", "Year", "Depth_m", "Week"))|>
+  group_by(Date)|>
+  mutate(Temp_C = coalesce(Temp_C.x, Temp_C.y))|>
+  ungroup()|>
+  filter(Depth_m > 0.09)|>
+  select(-Temp_C.y, -Temp_C.x)
 
-RF_frame_mslt<- RF_frame_msl|> #now with temp metrics
-  left_join(temp_weekly_summary, by = c("Week", "Year"))
+#variables <- ("Temp_C")
+#temp_depths_coalesced_summarised <- weekly_sum_variables(temp_depths_coalesced, variables)
+
+#probably this isn't the most useful information for Temp^^^
+#instead I will calculate: VWT, SurfTemp (average of first meter),
+#thermocline depth, epilimnion, metalimnion, hypolimnion mean temperatures
+#temp range (mean(top 1m)- mean(bottom 1m))
+#standard deviation of temp 
+#max and min temp
+#schmidt stability
+#buoyancy freq
+####Temp calculations####
+temp_depths_cleaned <- temp_depths_coalesced |> #adding buoyancy freq here
+  filter(!is.na(Temp_C)) |>
+  group_by(Date, Depth_m) |>
+  summarise(Temp_C = mean(Temp_C, na.rm = TRUE), .groups = "drop")|>
+  mutate(buoyancy_freq = c(buoyancy.freq(Temp_C, Depth_m), NA))#added for padding for the last value
+  
+
+temp_weekly_sum <- weekly_sum_variables(temp_depths_cleaned, "Temp_C")
 
 ####Thermocline####
 
 # Dataframe with thermocline
-just_thermocline <- pwmgslyccn |>
+just_thermocline <- temp_depths_cleaned |>
   filter(!is.na(Temp_C)) |>
+  group_by(Date, Depth_m)|>
+  mutate(Temp_C = mean(Temp_C), na.rm = TRUE)|>
+  ungroup()|>
   group_by(Date) |>
   group_modify(~ {
     # Calculate max depth where Temp_C is not NA
@@ -611,98 +635,122 @@ just_thermocline <- pwmgslyccn |>
     )
     
     # Apply cutoff: Remove thermocline depths deeper than 40% of max depth
-    thermocline_depth <- ifelse(thermocline_depth > 0.6 * max_depth, NA, thermocline_depth)
-    thermocline_depth <- ifelse(thermocline_depth < 0.25 * max_depth, NA, thermocline_depth)
+#    thermocline_depth <- ifelse(thermocline_depth > 0.6 * max_depth, NA, thermocline_depth)
+#    thermocline_depth <- ifelse(thermocline_depth < 0.25 * max_depth, NA, thermocline_depth)
     
     # Ensure Date is a single value and return the summarised dataframe
     tibble(Date = .x$Date[1], thermocline_depth = thermocline_depth)
   }) |>
-  ungroup()
+  
+  ungroup()|>
+  mutate(Week = week(Date), 
+         Year = year(Date))
 
-#fixing incorrect thermoclines
-# weird_fixed<- pwmgslyccnt|>
-#   filter(thermocline_depth<3)|>
-#   group_by(Date)|>
-#   filter(Depth_m > thermocline_depth)|>
-#   mutate(thermocline_depth = thermo.depth(Temp_C, 
-#                                           Depth_m, 
-#                                           Smin = 2, 
-#                                           seasonal = TRUE, 
-#                                           index = FALSE,
-#                                           mixed.cutoff = 3
-#   ))|>
-#   ungroup()
-
-#add to frame
-# final_datathermocline <- final_datanpratio|>
-#   left_join(both_merged, by = c("CastID", "Depth_m", "Temp_C"), relationship = "many-to-many")
-
-pwmgslyccnt <- pwmgslyccn|>
+#####individual date thermocline check####
+#join thermocline to temp profiles so that I can plot them 
+thermocline_and_depth_profiles <- temp_depths_cleaned|>
   left_join(just_thermocline, by = c("Date"))|>
   group_by(Date)|>
   fill(thermocline_depth, .direction = "updown")|>
-  ungroup()
+  ungroup()|>
+  mutate(year = year(Date))
+  
+  
+for (yr in years) {
+  
+  # Filter data for the year
+  test <- thermocline_and_depth_profiles |>
+    filter(year(Date) == yr)
+  
+  # Skip if there's no data
+  if (nrow(test) == 0) next
+  
+  # Create plot
+  plot_casts <- ggplot(test, aes(x = Temp_C, y = Depth_m)) +
+    geom_path() +
+    geom_point(size = 0.8, alpha = 0.8) +  # Small points at each observation
+    # Light blue grid lines for every whole meter
+    geom_hline(yintercept = seq(0, max(test$Depth_m, na.rm = TRUE), by = 1), 
+               color = "lightblue", linetype = "dotted", linewidth = 0.3) +
+    # Horizontal lines for depths
+    geom_hline(aes(yintercept = thermocline_depth), linetype = "dashed", color = "red") +
+    # Vertical lines for concentrations
+    scale_y_reverse(breaks = seq(0, max(test$Depth_m, na.rm = TRUE), by = 1)) +
+    theme_bw() +
+    facet_wrap(vars(Date)) +
+    xlab("Temp") +
+    ylab("Depth (m)") +
+    ggtitle(paste(yr, "Temp Profiles"))+
+    geom_text(aes(label = round(thermocline_depth, 1), x = Inf, y = thermocline_depth), 
+              color = "black", hjust = 1.1, size = 3)
+  
+  # Save plot
+  ggsave(filename = paste0("Figs/Thermocline/", yr, "_raw_casts.png"),
+         plot = plot_casts,
+         width = 12,
+         height = 10,
+         dpi = 300)
+}
 
-#####individual date thermocline check####
-plot_data <- pwmgslyccnt |>
-  filter(Date %in% c("2015-06-10"))|> #change depths here to see a specific day and see if the thermocline matches up
-  select(Date, Depth_m, thermocline_depth, Temp_C)
-# Extract the thermocline depth for the specific date for the line
-thermocline_depth_value <- unique(plot_data$thermocline_depth)
-# Create the plot
-ggplot(plot_data, aes(x = Temp_C, y = Depth_m)) +
-  geom_point() +  # Add points
-  geom_hline(yintercept = thermocline_depth_value, linetype = "dashed", color = "red") +  # Add the thermocline line
-  scale_y_reverse() +  # Inverts the y-axis
-  labs(x = "Temperature (°C)", y = "Depth (m)", title = "Thermocline Depth on ____") +
-  theme_minimal()  # Optional: apply a clean theme
+#need to recalculate some of them will come back later for now just add to main dataframe
 
-#### plot TC, DCM, and PZ####
-
-ggplot(DCM_final, aes(x = Date)) +
-  scale_y_reverse() +
-  geom_line(aes(y = thermocline_depth, color = "Thermocline Depth")) +  # Line for thermocline_depth
-  geom_line(aes(y = WaterLevel_m, color = "Water Level")) +  # Line for water_level
-  geom_line(aes(y = PZ, color = "Photic Zone (PZ)")) +  # Line for PZ
-  geom_line(aes(y = Totals_DCM_depth, color = "DCM Depth"), size = 1) +  # Line for Totals_DCM_depth
-  facet_wrap(~ Year, scales = "free_x") +  # Facet by Year to avoid connecting across years
-  scale_color_manual(values = c("Thermocline Depth" = "red", 
-                                "Water Level" = "blue", 
-                                "Photic Zone (PZ)" = "orange", 
-                                "DCM Depth" = "green")) +  # Set custom colors
-  labs(color = "Variable")  # Add a label to the legend
+just_thermocline <- just_thermocline|>
+  group_by(Week, Year)|>
+  summarise(thermocline_depth = mean(thermocline_depth, na.rm = TRUE))
+  
+RF_frame_mslt <- RF_frame_msl|>
+  left_join(just_thermocline, by = c("Week", "Year"))
 
 ####Buoyancy Frequency ####
+buoyancy_frame <- temp_depths_cleaned|>
+  select(Date, buoyancy_freq, Depth_m)|>
+  mutate(Week = week(Date), 
+         Year = year(Date))
 
-pwmgslyccntb <- pwmgslyccnt|>
-  group_by(Date)|>
-  mutate(buoyancy_freq = c(buoyancy.freq(Temp_C, Depth_m), NA))|>#added for padding for the last value
-  relocate(buoyancy_freq, .before = thermocline_depth)
-#need to make sure this makes sense
+joined_df <- buoyancy_frame |>
+  left_join(RF_frame_mslt |> select(Date, DCM_depth), by = c("Week", "Year"))|>
+  filter(!is.na(DCM_depth))
 
 
+buoyancy_with_dcm <- joined_df |>
+  group_by(Week, Year) |>
+  mutate(
+    depth_diff = abs(Depth_m - DCM_depth),
+    N_at_DCM = buoyancy_freq[which.min(depth_diff)]
+  ) |>
+  ungroup() |>
+  select(Week, Year, Depth_m, buoyancy_freq, DCM_depth, N_at_DCM)|>
+  select(Week, Year, N_at_DCM)|>
+  group_by(Week, Year)|>
+  summarise(N_at_DCM = mean(N_at_DCM, na.rm = TRUE))
+
+RF_frame_msltb <- RF_frame_mslt|>
+  left_join(buoyancy_with_dcm, by = c("Week", "Year"))
 
 #### Nutrients  ####
 
 chemistry_filtered <- chemistry |>
   filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))
+  mutate(Date = as_date(DateTime), 
+         DateTime = as.POSIXct(DateTime))|>
+  filter((hour(DateTime) >= 8), (hour(DateTime) <= 18))|>
+  mutate(
+    TN_ugL = if_else(Flag_TN_ugL == 9, NA_real_, TN_ugL),
+    TP_ugL = if_else(Flag_TP_ugL == 9, NA_real_, TP_ugL),
+    NH4_ugL = if_else(Flag_NH4_ugL == 9, NA_real_, NH4_ugL),
+    NO3NO2_ugL = if_else(Flag_NO3NO2_ugL == 9, NA_real_, NO3NO2_ugL),
+    DIC_mgL = if_else(Flag_DIC_mgL == 9, NA_real_, DIC_mgL)
+  ) |>
+  select(Date, Depth_m, TN_ugL, TP_ugL, NH4_ugL, NO3NO2_ugL, DIC_mgL)
+ 
+   
+variables <- c("TN_ugL", "TP_ugL", "NH4_ugL", "NO3NO2_ugL", 
+               "DIC_mgL")
 
-
-variables <- c("TN_ugL", "TP_ugL", "NH4_ugL", "NO3NO2_ugL", "SRP_ugL", 
-               "DOC_mgL", "DIC_mgL", "DC_mgL", "DN_mgL")
 #raw data availability 
 plot <- data_availability(chemistry_filtered, variables)
+
 ggsave("raw_chem_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
-
-#interpolated data availability 
-chemistry_interpolated <- interpolate_variable(chemistry_filtered, variables, expanded_dates)
-#plot <- data_availability(chemistry_interpolated, variables)
-#ggsave("interpolated_chem_availability.png", plot = plot, width = 20, height = 15, dpi = 300)
-
-pwmgslycc <- pwmgslyc|>
-  left_join(chemistry_interpolated, by = c("DOY", "Year", "Depth_m", "Week", "Date"))
-
 
 #### NP ratio  ####
 
@@ -722,119 +770,133 @@ calculate_np_ratio <- function(tn, tp) {
 }
 
 # added np ratio to dataframe
-pwmgslyccn <- pwmgslycc %>%
+chemistry_filtered_np <- chemistry_filtered %>%
   mutate(np_ratio = calculate_np_ratio(TN_ugL,TP_ugL))|>
   relocate(np_ratio, .before = TN_ugL)
 
+variables <- c("TN_ugL", "TP_ugL", "NH4_ugL", "NO3NO2_ugL", 
+               "DIC_mgL", "np_ratio")
+
+chem_weekly_sum <- weekly_sum_variables(chemistry_filtered_np, variables)
+
+#join to RF frame
+RF_frame_msltbc <- RF_frame_msltb|>
+  left_join(chem_weekly_sum, by = c("Week", "Year"))
+
 # Visualizing metdata####
-
-metdata0 <- metdata|>
-  mutate(Date = as_date(DateTime))|>
-  mutate(DOY = yday(Date))|>
-  relocate(DOY, .before = DateTime)|>
-  relocate(Date, .before = DateTime)
-
-##### Function for plotting meteorological variables #### 
-metplots <- function(yearz, variable, maxx = NULL){
-  
-  metviz <- metdata0|>
-    filter(year(DateTime) == yearz) #filtering for the year specified
-  
-  
-  ggplot(metviz, aes(x = DateTime, y = {{variable}}))+
-    geom_path()+
-    ggtitle(paste(deparse(substitute(variable)), yearz))+
-    theme_minimal()+
-    scale_y_continuous(limits = c(0, maxx))  # setting consistent y-axis limits
-  
-}
-
-##### Precipitation ####
-#not including all of this for now
-metdataprecip <- metdata0 |> 
-  group_by(Date, year(DateTime))|> 
-  mutate(precip_daily = sum(Rain_Total_mm, na.rm = TRUE))|>
-  ungroup()|>
-  relocate(Date, .before = DateTime)|>
-  relocate(precip_daily, .before = Rain_Total_mm)
-
-#b1 <- metplots(2015, precip_daily, maxx = 80)
-#b2 <- metplots(2016, precip_daily, maxx = 80)
-#b3 <- metplots(2017, precip_daily, maxx = 80)
-#b4 <- metplots(2018, precip_daily, maxx = 80)
-#b5 <- metplots(2019, precip_daily, maxx = 80)
-#b6 <- metplots(2020, precip_daily, maxx = 80)
-#b7 <- metplots(2021, precip_daily, maxx = 80)
-#b8 <- metplots(2022, precip_daily, maxx = 80)
-#b9 <- metplots(2023, precip_daily, maxx = 80)
-
-#precips<- plot_grid(
-#  b1, b2, b3,
-#  b4, b5, b6, 
-#  b7, b8, b9,
-#  ncol = 3
-#)
-#print(b1)
-
-#print(precips)
-
-##### Air temps #### 
-
-#b1 <- metplots(2015, AirTemp_C_Average, maxx = 50)
-#b2 <- metplots(2016, AirTemp_C_Average, maxx = 50)
-#b3 <- metplots(2017, AirTemp_C_Average, maxx = 50)
-#b4 <- metplots(2018, AirTemp_C_Average, maxx = 50)
-#b5 <- metplots(2019, AirTemp_C_Average, maxx = 50)
-#b6 <- metplots(2020, AirTemp_C_Average, maxx = 50)
-#b7 <- metplots(2021, AirTemp_C_Average, maxx = 50)
-#b8 <- metplots(2022, AirTemp_C_Average, maxx = 50)
-#b9 <- metplots(2023, AirTemp_C_Average, maxx = 50)
-
-
-#temps<- plot_grid(
-#  b1, b2, b3,
-#  b4, b5, b6, 
-#  b7, b8, b9,
-#  ncol = 3
-#)
-
-#print(temps)
-
-##### dailyaverage and dailymax for temps #### 
-metdatatemps <- metdataprecip |> 
-  group_by(Date, year(DateTime))|> 
-  mutate(daily_airtempavg = mean(AirTemp_C_Average, na.rm = TRUE))|>
-  mutate(maxdaily_airtemp = max(AirTemp_C_Average, na.rm = TRUE))|>
-  mutate(mindaily_airtemp = min(AirTemp_C_Average, na.rm = TRUE))|>
-  ungroup()|>
-  relocate(daily_airtempavg, .before = AirTemp_C_Average)|>
-  relocate(maxdaily_airtemp, .before = AirTemp_C_Average)|>
-  relocate(mindaily_airtemp, .before = AirTemp_C_Average)|>
-  select(Date,daily_airtempavg, maxdaily_airtemp, mindaily_airtemp, precip_daily)
-
-
-##### precip and temp to final_datanpratio #### 
-
-metdata_join <- metdatatemps |> 
-  group_by(Date) |> 
-  summarise(across(everything(), \(x) mean(x, na.rm = TRUE))) |> 
-  distinct()
-
-final_datamet <- final_datanpratio|>
-  left_join(metdata_join, by = c("Date"), relationship = "many-to-many")
-
- 
+# 
+# metdata0 <- metdata|>
+#   mutate(Date = as_date(DateTime))|>
+#   mutate(DOY = yday(Date))|>
+#   relocate(DOY, .before = DateTime)|>
+#   relocate(Date, .before = DateTime)
+# 
+# ##### Function for plotting meteorological variables #### 
+# metplots <- function(yearz, variable, maxx = NULL){
+#   
+#   metviz <- metdata0|>
+#     filter(year(DateTime) == yearz) #filtering for the year specified
+#   
+#   
+#   ggplot(metviz, aes(x = DateTime, y = {{variable}}))+
+#     geom_path()+
+#     ggtitle(paste(deparse(substitute(variable)), yearz))+
+#     theme_minimal()+
+#     scale_y_continuous(limits = c(0, maxx))  # setting consistent y-axis limits
+#   
+# }
+# 
+# ##### Precipitation ####
+# #not including all of this for now
+# metdataprecip <- metdata0 |> 
+#   group_by(Date, year(DateTime))|> 
+#   mutate(precip_daily = sum(Rain_Total_mm, na.rm = TRUE))|>
+#   ungroup()|>
+#   relocate(Date, .before = DateTime)|>
+#   relocate(precip_daily, .before = Rain_Total_mm)
+# 
+# #b1 <- metplots(2015, precip_daily, maxx = 80)
+# #b2 <- metplots(2016, precip_daily, maxx = 80)
+# #b3 <- metplots(2017, precip_daily, maxx = 80)
+# #b4 <- metplots(2018, precip_daily, maxx = 80)
+# #b5 <- metplots(2019, precip_daily, maxx = 80)
+# #b6 <- metplots(2020, precip_daily, maxx = 80)
+# #b7 <- metplots(2021, precip_daily, maxx = 80)
+# #b8 <- metplots(2022, precip_daily, maxx = 80)
+# #b9 <- metplots(2023, precip_daily, maxx = 80)
+# 
+# #precips<- plot_grid(
+# #  b1, b2, b3,
+# #  b4, b5, b6, 
+# #  b7, b8, b9,
+# #  ncol = 3
+# #)
+# #print(b1)
+# 
+# #print(precips)
+# 
+# ##### Air temps #### 
+# 
+# #b1 <- metplots(2015, AirTemp_C_Average, maxx = 50)
+# #b2 <- metplots(2016, AirTemp_C_Average, maxx = 50)
+# #b3 <- metplots(2017, AirTemp_C_Average, maxx = 50)
+# #b4 <- metplots(2018, AirTemp_C_Average, maxx = 50)
+# #b5 <- metplots(2019, AirTemp_C_Average, maxx = 50)
+# #b6 <- metplots(2020, AirTemp_C_Average, maxx = 50)
+# #b7 <- metplots(2021, AirTemp_C_Average, maxx = 50)
+# #b8 <- metplots(2022, AirTemp_C_Average, maxx = 50)
+# #b9 <- metplots(2023, AirTemp_C_Average, maxx = 50)
+# 
+# 
+# #temps<- plot_grid(
+# #  b1, b2, b3,
+# #  b4, b5, b6, 
+# #  b7, b8, b9,
+# #  ncol = 3
+# #)
+# 
+# #print(temps)
+# 
+# ##### dailyaverage and dailymax for temps #### 
+# metdatatemps <- metdataprecip |> 
+#   group_by(Date, year(DateTime))|> 
+#   mutate(daily_airtempavg = mean(AirTemp_C_Average, na.rm = TRUE))|>
+#   mutate(maxdaily_airtemp = max(AirTemp_C_Average, na.rm = TRUE))|>
+#   mutate(mindaily_airtemp = min(AirTemp_C_Average, na.rm = TRUE))|>
+#   ungroup()|>
+#   relocate(daily_airtempavg, .before = AirTemp_C_Average)|>
+#   relocate(maxdaily_airtemp, .before = AirTemp_C_Average)|>
+#   relocate(mindaily_airtemp, .before = AirTemp_C_Average)|>
+#   select(Date,daily_airtempavg, maxdaily_airtemp, mindaily_airtemp, precip_daily)
+# 
+# 
+# ##### precip and temp to final_datanpratio #### 
+# 
+# metdata_join <- metdatatemps |> 
+#   group_by(Date) |> 
+#   summarise(across(everything(), \(x) mean(x, na.rm = TRUE))) |> 
+#   distinct()
+# 
+# final_datamet <- final_datanpratio|>
+#   left_join(metdata_join, by = c("Date"), relationship = "many-to-many")
+# 
+#  
 #final dataframe----
+Final_RF_frame <- RF_frame_msltbc |>
+  mutate(Date = coalesce(Date.x, Date.y))|>
+  select(-Date.x, -Date.y, -Secchi_m, -sec_K_d)|>
+  relocate(Date, .before = "Year")|>
+  rename(buoyancy_freq = N_at_DCM)
 
 #####correlation function----
 
 correlations <- function(year1, year2) {
-  DCM_final_cor <- DCM_final |>
+  DCM_final_cor <- Final_RF_frame |>
     filter(year(Date) >= {{year1}}, year(Date) <= {{year2}}) |>
     filter(month(Date) > 4, month(Date) < 10) |>
-    filter(Totals_DCM_conc > 20)
+    filter(max_conc > 20)
   
-  drivers_cor <- cor(DCM_final_cor[,c(6:66)],
+  drivers_cor <- cor(DCM_final_cor[,c(4:65)],
                      method = "spearman", use = "pairwise.complete.obs")
  
   list(drivers_cor = drivers_cor, DCM_final_cor = DCM_final_cor)
@@ -842,7 +904,7 @@ correlations <- function(year1, year2) {
 }
 
 #cutoff 0.7
-results <- correlations(2014, 2019)
+results <- correlations(2014, 2024)
 final_data_cor_results <- results$drivers_cor
 final_data_cor_results[lower.tri(final_data_cor_results)] = ""
 final_data_cor <- results$DCM_final_cor
@@ -864,7 +926,7 @@ significant_correlations <- final_data_cor_long |> # Filter correlations based o
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
 significant_correlations <- significant_correlations |>
-  filter(Variable1 %in% c("Totals_DCM_depth"))|>
+  filter(Variable1 %in% c("DCM_depth"))|>
   filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
   mutate(Combined = paste(Variable1, "vs", Variable2))
 
@@ -904,7 +966,7 @@ significant_correlations <- maxdayscor_long |> # Filter correlations based on th
 colnames(significant_correlations) <- c("Variable1", "Variable2", "Correlation") # Rename columns for clarity
 
 significant_correlations <- significant_correlations |>
-  filter(Variable1 %in% c("Totals_DCM_depth"))|>
+  filter(Variable1 %in% c("DCM_depth"))|>
   filter(!Variable2 %in% c("peak.top", "peak.bottom"))|>
   mutate(Combined = paste(Variable1, "vs", Variable2))
 
@@ -986,8 +1048,6 @@ ggplot(significant_correlations, aes(x = Correlation, y = reorder(Combined, Corr
 looking<- final_data0|>
   filter(Date %in% c("2019-06-06"))
 
-
-
 ####RandomForest Anually####
 
 #"We constructed a RF of 1500 trees for each of the two response
@@ -1000,34 +1060,15 @@ looking<- final_data0|>
 
 #prepare data for random forest
 
-DCM_RF <- DCM_final |> 
-  ungroup()|>
-  select(Date, WaterLevel_m, thermocline_depth, Totals_DCM_conc, Totals_DCM_depth, PZ, 
-         max_Temp_C_depth, max_np_ratio_depth, max_SFe_mgL_depth, max_TFe_mgL_depth, 
-         max_SMn_mgL_depth, max_SCa_mgL_depth, max_TCa_mgL_depth, max_TCu_mgL_depth, 
-         max_SBa_mgL_depth, max_TBa_mgL_depth, max_CO2_umolL_depth, max_CH4_umolL_depth, 
-         max_DO_mgL_depth, max_DOsat_percent_depth, max_TN_ugL_depth, max_TP_ugL_depth, 
-         max_NH4_ugL_depth, max_NO3NO2_ugL_depth, max_SRP_ugL_depth, max_DOC_mgL_depth, 
-         max_DIC_mgL_depth, max_DC_mgL_depth, min_Temp_C_depth, min_np_ratio_depth, 
-         min_SFe_mgL_depth, min_TFe_mgL_depth, min_SMn_mgL_depth, min_SCa_mgL_depth, 
-         min_TCa_mgL_depth, min_TCu_mgL_depth, min_SBa_mgL_depth, min_TBa_mgL_depth, 
-         min_CO2_umolL_depth, min_CH4_umolL_depth, min_DO_mgL_depth, min_DOsat_percent_depth, 
-         min_TN_ugL_depth, min_TP_ugL_depth, min_NH4_ugL_depth, min_NO3NO2_ugL_depth, 
-         min_SRP_ugL_depth, min_DOC_mgL_depth) |>
-  group_by(Date) |>
-  summarise(across(everything(), mean, na.rm = TRUE)) |>
-  ungroup()
-
 library(randomForest)
 library(missForest)
 
 set.seed(123)  # Setting seed for reproducibility
 
 # Splitting data into training (70%) and testing (30%)
-index <- sample(1:nrow(DCM_RF), size = 0.7 * nrow(DCM_RF))  # 70% training data
-train_data <- DCM_RF[index, ]
-test_data <- DCM_RF[-index, ]
-
+index <- sample(1:nrow(Final_RF_frame), size = 0.7 * nrow(Final_RF_frame))  # 70% training data
+train_data <- Final_RF_frame[index, ]
+test_data <- Final_RF_frame[-index, ]
 
 #should run model on test dataset , currently mine is running on training. 
 #training and test RMSE, MAE and Rsquare value important to show. 
@@ -1055,7 +1096,7 @@ train_data_imputed_z <- train_data_no_na %>%
   #  select(-WaterLevel_m)
   
   # Add the excluded non-numeric columns (e.g., Date) back to the imputed dataset
-  model_rf <- randomForest(Totals_DCM_depth ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
+  model_rf <- randomForest(DCM_depth ~ ., data = train_data_imputed_z, ntree = 500, importance = TRUE)
   ######grid search CV function
   #look at hyperparameters for RandomForest tune as many as 
   #n_estimators, max_depth, minimum samples split, max_leaf nodes, and min_samples leaf
@@ -1072,8 +1113,8 @@ train_data_imputed_z <- train_data_no_na %>%
     filter(!is.na(`%IncMSE`), `%IncMSE` > 0)# Filter for positive %IncMSE values
   
 #for all years
-  filtered_importance_df <- filtered_importance_df |>
-    filter(!Variable %in% c("peak.top", "pH", "min_pH_depth",  "min_Cond_uScm_depth", "max_Cond_uScm_depth", "peak.magnitude", "peak.bottom", "secchi_PZ", "PAR_PZ", "max_Cond_uScm_depth", "DayOfYear", "DOY", "min_Cond_uScm_dept", "min_CH4_umolL_depth", "max_CH4_umolL_depth"))
+#  filtered_importance_df <- filtered_importance_df |>
+#    filter(!Variable %in% c("peak.top", "pH", "min_pH_depth",  "min_Cond_uScm_depth", "max_Cond_uScm_depth", "peak.magnitude", "peak.bottom", "secchi_PZ", "PAR_PZ", "max_Cond_uScm_depth", "DayOfYear", "DOY", "min_Cond_uScm_dept", "min_CH4_umolL_depth", "max_CH4_umolL_depth"))
   
   
   
@@ -1088,15 +1129,11 @@ train_data_imputed_z <- train_data_no_na %>%
     theme_minimal()
   
   
-  
-  
- 
-  
 ####making predictions####
   # Predict Totals_DCM_depth for test data
   test_predictions <- predict(model_rf, newdata = train_data_imputed_z)
   
-  rmse <- sqrt(mean((test_predictions - train_data_imputed_z$Totals_DCM_depth)^2, na.rm = TRUE))
+  rmse <- sqrt(mean((test_predictions - train_data_imputed_z$DCM_depth)^2, na.rm = TRUE))
   print(paste("RMSE:", rmse))
   
   # Plot predicted vs. actual values
@@ -1111,10 +1148,7 @@ train_data_imputed_z <- train_data_no_na %>%
     theme_minimal()
   
   
- 
-
-
-####RF totals magnitude####
+ ####RF totals magnitude####
 #####make dataframe#####
   
   # Create a vector of variable names that need to be summarized
