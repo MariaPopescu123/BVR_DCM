@@ -2,14 +2,14 @@
 #Maria Popescu
 #alot of help writing the function from Mary
 
-#CODE NOT WORKING BECAUSE SITE. NEED TO REMOVE SITE
-#check to make sure 
 
-final_data0 <- read.csv("./final_data0.csv")
 
-final_data0<- final_data0|>
-  mutate(Reservoir = "BVR")|>
-  mutate(DateTime = Date)
+phytos <- read.csv("./phytos.csv")
+
+pacman::p_load(tidyverse, lubridate, akima, reshape2, 
+               gridExtra, grid, colorRamps, RColorBrewer, rLakeAnalyzer,
+               reader, cowplot, dplyr, tidyr, ggplot2, zoo, purrr, beepr, forecast, ggthemes)
+
 
 
 #need to change these values to reflect Bluegreens not just chla (which it currently is)
@@ -43,15 +43,13 @@ Photic_zone<- final_data0|>
 
 #might be interesting to add lines for other phytos and see how they compare
 
-flora_heatmap <- function(fp_data, year, site, z, unitz, chlorophyll_data = NA, max_legend_value = NA)
+flora_heatmap <- function(fp_data, year, site, z, unitz, max_legend_value = NA)
 {
-  
   #subset to relevant data
   fp <- fp_data %>%
     filter(year(DateTime) == year) %>%
     select(CastID, DateTime, Depth_m, {{z}})
-    
-  
+
   #slice by depth for each reservoir
     depths = seq(0.1, 10, by = 0.3)
     df.final<-data.frame()
@@ -74,72 +72,110 @@ flora_heatmap <- function(fp_data, year, site, z, unitz, chlorophyll_data = NA, 
   # Convert to DOY
   fp_new$DOY <- yday(fp_new$DateTime)
   
+  #what about this for if it's past max_legend_value
+ # fp_new[[z]] <- ifelse(fp_new[[z]]> max_legend_value, max_legend_value, fp_new[[z]]) 
+  
+  
   #trying to address error in missing values and Infs here!!!!!
   fp_new <- fp_new|>
     filter(!is.na(DOY) & !is.na(Depth_m) & !is.na(fp_new[[z]]) &
              !is.infinite(DOY) & !is.infinite(Depth_m) & !is.infinite(fp_new[[z]]))
   
   
-  fig_title <- paste("BVR", year, "Site", site, z, sep = " ")
+  fig_title <- paste("BVR", year) #add this in if you want , "Site", site, z, sep = " "
   
   interp <- interp(x=fp_new$DOY, y = fp_new$Depth_m, z = unlist(fp_new[z]),
-                   xo = seq(min(fp_new$DOY), max(fp_new$DOY), by = .001), #this is what i'm playing with right now
-                   yo = seq(min(fp_new$Depth_m), max(fp_new$Depth_m), by = 0.01),
+                   xo = seq(min(fp_new$DOY), max(fp_new$DOY), by = .1), #this is what i'm playing with right now
+                   yo = seq(min(fp_new$Depth_m), max(fp_new$Depth_m), by = 0.05),
                    extrap = T, linear = T, duplicate = "strip")
   interp <- interp2xyz(interp, data.frame=T)
   
-  # Prepare chlorophyll maxima data for line
-  chlorophyll_data <- chlorophyll_data %>%
-    filter(year(DateTime) == year & site == site) %>%
-    mutate(DOY = yday(DateTime))|>
-    filter(DOY <= max(fp_new$DOY) & DOY >= min(fp_new$DOY))
+  # p1 <- ggplot(interp, aes(x=x, y=y))+
+  #   geom_raster(aes(fill=z))+
+  #   scale_y_reverse(expand = c(0,0))+
+  #   scale_x_continuous(expand = c(0, 0), breaks = seq(1, 366, by = 30),
+  #                      labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
+  #   scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +
+  #   scale_color_gradient(low = "blue", high = "red") + # Adjust color scale as needed
+  #   labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
+  #   theme_bw()+
+  #   theme(
+  #     legend.text = element_text(size = 8), # Adjust text size in legend
+  #     legend.title = element_text(size = 10), # Adjust title size in legend
+  #     legend.key.size = unit(0.5, "cm") # Adjust the size of legend keys
+  #   )
+  # 
+  # print(p1)
   
-  Photic_zone <- Photic_zone %>%
-    filter(year(Date) == year) %>%
-    mutate(DOY = yday(Date))
 
-  p1 <- ggplot(interp, aes(x=x, y=y))+
-    geom_raster(aes(fill=z))+
-    scale_y_reverse(expand = c(0,0))+
-    scale_x_continuous(expand = c(0, 0), breaks = seq(1, 366, by = 30), 
-                       labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")) +
-    scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray", limits = c(NA, max_legend_value)) +
-    geom_path(data = chlorophyll_data, aes(x = DOY, y = Depth_m, color = Bluegreens_ugL), size = 1.2) + # Color line by Bluegreens_ugL
-    scale_color_gradient(low = "blue", high = "red") + # Adjust color scale as needed
-    labs(x = "Day of year", y = "Depth (m)", title = fig_title,fill= unitz, color = "Bluegreens (µg/L)")+
-    theme_bw()+
-    theme(
-      legend.text = element_text(size = 8), # Adjust text size in legend
-      legend.title = element_text(size = 10), # Adjust title size in legend
-      legend.key.size = unit(0.5, "cm") # Adjust the size of legend keys
-    )
+p1 <- ggplot(interp, aes(x = x, y = y)) +
+  geom_raster(aes(fill = z)) +
+  scale_y_reverse(expand = c(0, 0)) +
+  scale_x_continuous(
+    expand = c(0, 0),
+    breaks = seq(1, 366, by = 30),
+    labels = function(x) format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b")
+  ) +
+  scale_fill_gradientn(
+    colours = c(blue2green2red(60), "black", "black", "black","black", "black","black", "black",  "black","black", "black","black", "black"),  # Add black explicitly
+    values = scales::rescale(c(min(interp$z, na.rm = TRUE), 50, 100, 110, max_legend_value)),
+    limits = c(min(interp$z, na.rm = TRUE), max_legend_value),
+    oob = scales::squish  # Ensures out-of-bounds values are mapped properly
+  ) +
+  labs(
+    x = "Day of year",
+    y = "Depth (m)",
+    title = fig_title,
+    fill = unitz,
+    color = "Bluegreens (µg/L)"
+  ) +
   
-  print(p1)
-  
+  theme_bw() +
+  guides(fill = guide_colorbar(
+    barwidth = .5, 
+    barheight = 15,
+    ticks.colour = "black",
+    frame.colour = "black",
+    breaks = c(0, 20, 40, 60, 80, 100, 150, 200, 500, 1000),
+    labels = c("0", "20", "40", "60", "80", "100", "150", "200", "500", "1000")
+  )) +
+  theme(
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 10),
+    legend.key.size = unit(0.5, "cm")
+  )
+
+print(p1)
+
+
 }
 
 #### flora ####
 {
   
-  b1 <- flora_heatmap(fp_data = current_df, year = 2014, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b2 <- flora_heatmap(fp_data = current_df, year = 2015, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b3 <- flora_heatmap(fp_data = current_df, year = 2016, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b4 <- flora_heatmap(fp_data = current_df, year = 2017, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b5 <- flora_heatmap(fp_data = current_df, year = 2018, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b6 <- flora_heatmap(fp_data = current_df, year = 2019, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b7 <- flora_heatmap(fp_data = current_df, year = 2020, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b8 <- flora_heatmap(fp_data = current_df, year = 2021, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b9 <- flora_heatmap(fp_data = current_df, year = 2022, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
-  b10 <- flora_heatmap(fp_data = current_df, year = 2023, site = 50, z = "Bluegreens_ugL", unitz = "ug/L", chlorophyll_data = chlorophyll_data)
+  b1 <- flora_heatmap(fp_data = phytos, year = 2014, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b2 <- flora_heatmap(fp_data = phytos, year = 2015, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b3 <- flora_heatmap(fp_data = phytos, year = 2016, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b4 <- flora_heatmap(fp_data = phytos, year = 2017, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b5 <- flora_heatmap(fp_data = phytos, year = 2018, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b6 <- flora_heatmap(fp_data = phytos, year = 2019, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b7 <- flora_heatmap(fp_data = phytos, year = 2020, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b8 <- flora_heatmap(fp_data = phytos, year = 2021, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b9 <- flora_heatmap(fp_data = phytos, year = 2022, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+  b10 <- flora_heatmap(fp_data = phytos, year = 2023, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
+ b11 <- flora_heatmap(fp_data = phytos, year = 2024, site = 50, z = "TotalConc_ugL", unitz = "ug/L", max_legend_value = max(phytos$TotalConc_ugL))
   
-  bluegreens <- plot_grid(
-    b1, b2, b3,
-    b4, b5,b6,
-    b7, b8, b9,
-    ncol = 3
+  
+  phytos_maps <- plot_grid(
+    b1, b2, b3, b4, b5,
+    b6, b7, b8, b9, b10, 
+    ncol = 5
   )
   
-  print(bluegreens)
+  print(phytos_maps)
+  
+  ggsave("BVR_phytos_heatmaps.png", phytos_maps, width = 20, height = 7, dpi = 300)
+  
   
   p1 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "TotalConc_ugL")
   p2 <- flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2022, site = 50, z = "BrownAlgae_ugL")

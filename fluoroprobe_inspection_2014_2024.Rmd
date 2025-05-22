@@ -1,0 +1,405 @@
+---
+title: "FluoroProbe_inspection_2014_2024"
+author: "Adrienne + Mary"
+date: "2025-01-16"
+output: html_document
+---
+
+## Load packages
+
+```{r setup packages, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Add the names of the packages 
+#install.packages('pacman')
+pacman::p_load(tidyverse, lubridate, akima, reshape2, 
+               gridExtra, grid, colorRamps, RColorBrewer, cowplot,
+               devtools, EDIutils, xml2, httr)
+```
+
+## Build dataframe - reviewers should not run this!
+
+REVIEWERS DO NOT RUN THIS CHUNK! THIS IS FOR DATA PRODUCT LEADS ONLY!
+```{r Make draft EDI file, include=FALSE, eval=FALSE, echo=FALSE}
+devtools::source_url("https://raw.githubusercontent.com/melofton/Reservoirs/refs/heads/master/Scripts/L1_functions/fluoroprobe_create.R")
+
+## identify latest date for data on EDI (need to add one (+1) to both dates because we want to exclude all possible start_day data and include all possible data for end_day)
+package_ID <- 'edi.272.8'
+eml <- read_metadata(package_ID)
+date_attribute <- xml_find_all(eml, xpath = ".//temporalCoverage/rangeOfDates/beginDate/calendarDate")
+first_edi_date <- as.Date(xml_text(date_attribute)) - lubridate::days(1)
+
+## Run Function 
+repo_link <- "https://api.github.com/repos/CareyLabVT/Reservoirs/git/trees/master?recursive=1"
+repo_filepath <- "https://raw.githubusercontent.com/CareyLabVT/Reservoirs/refs/heads/master/"
+example_file_for_colnames <- "https://raw.githubusercontent.com/CareyLabVT/Reservoirs/refs/heads/master/Data/DataAlreadyUploadedToEDI/CollatedDataForEDI/FluoroProbeData/20140404_CCR_50.txt"
+current_year_data_folder <- "Data/DataNotYetUploadedToEDI/FluoroProbe"
+historic_data_folder <- "Data/DataAlreadyUploadedToEDI/CollatedDataForEDI/FluoroProbeData"
+historic_data_2017 <- "https://raw.githubusercontent.com/CareyLabVT/Reservoirs/refs/heads/master/Data/DataAlreadyUploadedToEDI/CollatedDataForEDI/FluoroProbeData/FP_2017_data/FP_recal_2017.txt"
+maintenance_file <- 'https://raw.githubusercontent.com/melofton/Reservoirs/refs/heads/master/Data/DataNotYetUploadedToEDI/FluoroProbe/fluoroprobe_maintenance.csv'
+out_file <- "./Data/DataAlreadyUploadedtoEDI/EDIProductionFiles/MakeEMLFluoroProbe/2024/fluoroprobe_2014_2024.csv"
+start_date <- first_edi_date
+end_date <- Sys.Date() + lubridate::days(1)
+
+# Run function
+current_df <- fluoroprobe_qaqc(repo_link = repo_link,
+                 repo_filepath = repo_filepath,
+                 example_file_for_colnames = example_file_for_colnames,
+                 current_year_data_folder = current_year_data_folder,
+                 historic_data_folder = historic_data_folder,
+                 historic_data_2017 = historic_data_2017,
+                 maintenance_file = maintenance_file,
+                 out_file = out_file,
+                 start_date = start_date,
+                 end_date = end_date) 
+```
+
+## Read in built dataframe - reviewers start here!
+REVIEWERS PLEASE START HERE AND THANK YOU FOR YOUR EYES ON ALL THE DATA! :-)
+```{r}
+# THIS LINK SHOULD BE UPDATED WITH THE MOST RECENT PASTA LINK FROM THE EDI STAGING ENVIRONMENT!
+current_df <- read_csv('https://pasta.lternet.edu/package/data/eml/edi/272/9/f246b36c591a888cc70ebc87a5abbcb7') %>%
+  mutate(DateTime = force_tz(DateTime, tzone = "America/New_York"))
+
+# double-check time zone
+head(current_df$DateTime)
+hist(hour(current_df$DateTime))
+
+this_year <- current_df %>%
+  filter(year(DateTime) == 2024) 
+```
+
+## Check flags
+
+This section checks to make sure each observation has a data flag. It also checks to make sure the frequency of flags match what we expect to see. 
+
+```{r Check there are no NAs in Flag columns}
+
+#make sure no NAS in the Flag columns
+Flags=current_df%>%
+  select(DateTime, starts_with("Flag"))
+
+RowsNA=Flags[!complete.cases(Flags), ] # Keep only the complete rows
+
+#check the flag column
+Flags=current_df%>%
+  select(starts_with("Flag"))
+
+# Make a table with the number of times a flag was used
+for(f in 1:(ncol(Flags))){
+  #print(colnames(Flags[f]))
+  print(table(Flags[,f], useNA = "always"))
+}
+
+```
+
+## Plot all casts individually - reviewers should not run this!
+
+```{r eval = FALSE, echo = FALSE, include = FALSE}
+PLOT_ALL_CASTS == FALSE
+#create png plots for every cast for QAQC purposes (algal biomass)
+#these are just written to a file I temporarily create on my desktop
+#for EDI day; reviewers do not need to run this!!!
+if(PLOT_ALL_CASTS == TRUE){
+
+for (i in 1:length(unique(current_df$CastID))){ #for every unique FP cast
+  profile = subset(current_df, CastID == unique(current_df$CastID)[i])
+  castname = paste(profile$Reservoir[1], profile$Site[1], profile$DateTime[1],
+                   sep = "-")
+  
+  profile2 = profile %>%
+    select(Depth_m, GreenAlgae_ugL, Bluegreens_ugL, BrownAlgae_ugL, MixedAlgae_ugL, YellowSubstances_ugL, TotalConc_ugL)%>%
+    gather(GreenAlgae_ugL:TotalConc_ugL, key = spectral_group, value = ugL)
+  
+  profile_plot <- ggplot(data = profile2, aes(x = ugL, y = Depth_m, group = spectral_group, colour = spectral_group))+
+    geom_path(linewidth = 1)+
+    scale_y_reverse()+
+    ggtitle(castname)+
+    theme_bw()
+  
+  filename = paste0("/Users/MaryLofton/Desktop/FP_plots_2024/biomass/",castname,".png")
+  ggsave(filename = filename, plot = profile_plot, device = "png")
+
+}
+
+#create png plots for every cast for QAQC purposes (RFUs)
+#these are just written to a file I temporarily create on my desktop
+#for EDI day
+for (i in 1:length(unique(current_df$CastID))){ #for every unique FP cast
+  profile = subset(current_df, CastID == unique(current_df$CastID)[i])
+  castname = paste(profile$Reservoir[1], profile$Site[1], profile$DateTime[1],
+                   sep = "-")
+  
+  profile2 = profile %>%
+    select(Depth_m, RFU_525nm, RFU_570nm, RFU_610nm, RFU_370nm, RFU_590nm, RFU_470nm)%>%
+    gather(RFU_525nm:RFU_470nm, key = wavelength, value = RFU)
+  
+  profile_plot <- ggplot(data = profile2, aes(x = RFU, y = Depth_m, group = wavelength, colour = wavelength))+
+    geom_path(linewidth = 1)+
+    scale_y_reverse()+
+    ggtitle(castname)+
+    theme_bw()
+  
+  filename = paste0("/Users/MaryLofton/Desktop/FP_plots_2024/RFUs/",castname,".png")
+  ggsave(filename = filename, plot = profile_plot, device = "png")
+
+}
+
+#create png plots for every cast for QAQC purposes (temperature)
+#these are just written to a file I temporarily create on my desktop
+#for EDI day
+for (i in 1:length(unique(current_df$CastID))){ #for every unique FP cast
+  profile = subset(current_df, CastID == unique(current_df$CastID)[i])
+  castname = paste(profile$Reservoir[1], profile$Site[1], profile$DateTime[1],
+                   sep = "-")
+  
+  profile_plot <- ggplot(data = profile, aes(x = Temp_C, y = Depth_m))+
+    geom_path(linewidth = 1)+
+    scale_y_reverse()+
+    ggtitle(castname)+
+    theme_bw()
+  filename = paste0("/Users/MaryLofton/Desktop/FP_plots_2024/temperature/",castname,".png")
+  ggsave(filename = filename, plot = profile_plot, device = "png")
+  
+}
+
+#create png plots for every cast for QAQC purposes (transmission)
+for (i in 1:length(unique(current_df$CastID))){ #for every unique FP cast
+  profile = subset(current_df, CastID == unique(current_df$CastID)[i])
+  castname = paste(profile$Reservoir[1], profile$Site[1], profile$DateTime[1],
+                   sep = "-")
+  
+  profile_plot <- ggplot(data = profile, aes(x = Transmission_perc, y = Depth_m))+
+    geom_path(linewidth = 1)+
+    scale_y_reverse()+
+    ggtitle(castname)+
+    theme_bw()
+  filename = paste0("/Users/MaryLofton/Desktop/FP_plots_2024/transmission/",castname,".png")
+  ggsave(filename = filename, plot = profile_plot, device = "png")
+  
+}
+  
+}
+```
+
+## Define heatmap function
+
+```{r Heatmap function}
+flora_heatmap <- function(fp_data, reservoir, year, site, z){
+  
+  # Subset to relevant data
+  fp <- fp_data %>%
+    filter(Reservoir == reservoir & year(DateTime) == year & Site == site) %>%
+    select(CastID, DateTime, Depth_m, {{z}})
+  
+  # Slice by depth for each reservoir
+  if (reservoir == "FCR") {
+    if (site == 50) {
+      depths = seq(0.1, 9.3, by = 0.3)
+    } else if (site == 40) {
+      depths = seq(0.1, 8.5, by = 0.3)
+    } else if (site == 30) {
+      depths = seq(0.1, 7, by = 0.3)
+    } else if (site == 20) {
+      depths = seq(0.1, 4.5, by = 0.3)
+    } else if (site == 10) {
+      depths = seq(0.1, 3.5, by = 0.3)
+    }
+  } else if (reservoir == "BVR") {
+    depths = seq(0.1, 10, by = 0.3)
+  } else if (reservoir == "CCR") {
+    depths = seq(0.1, 20, by = 0.3)
+  } else if (reservoir == "GWR") {
+    depths = seq(0.1, 12, by = 0.3)
+  } else if (reservoir == "SHR") {
+    depths = seq(0.1, 30, by = 0.3)
+  }
+  
+  # Create depth-sliced dataframe
+  df.final <- data.frame()
+  for (i in 1:length(depths)) {
+    fp_layer <- fp %>%
+      group_by(CastID) %>%
+      slice(which.min(abs(as.numeric(Depth_m) - depths[i])))
+    df.final <- bind_rows(df.final, fp_layer)
+  }
+  
+  # Wrangle for plotting
+  fp_new <- arrange(df.final, DateTime)
+  fp_new$Depth_m <- round(as.numeric(fp_new$Depth_m), digits = 0.5)
+  fp_new$Date <- as.Date(fp_new$DateTime)
+  
+  fig_title <- paste(reservoir, year, "Site", site, z, sep = " ")
+  
+  # Interpolation with dates
+  interp <- interp(
+    x = as.numeric(fp_new$Date),  # convert Date to numeric for interp()
+    y = fp_new$Depth_m,
+    z = unlist(fp_new[z]),
+    xo = seq(min(as.numeric(fp_new$Date)), max(as.numeric(fp_new$Date)), by = 1),
+    yo = seq(min(fp_new$Depth_m), max(fp_new$Depth_m), by = 0.01),
+    extrap = TRUE, linear = TRUE, duplicate = "strip"
+  )
+  
+  interp <- interp2xyz(interp, data.frame = TRUE)
+  interp$x <- as.Date(interp$x, origin = "1970-01-01")  # convert back to Date
+  
+  # Plot
+  p1 <- ggplot(interp, aes(x = x, y = y)) +
+    geom_raster(aes(fill = z)) +
+    scale_y_reverse(expand = c(0, 0)) +
+    scale_x_date(date_labels = "%b", date_breaks = "1 month", expand = c(0, 0)) +
+    scale_fill_gradientn(colours = blue2green2red(60), na.value = "gray") +
+    labs(x = "Month", y = "Depth (m)", title = fig_title,
+         fill = expression(paste(mu, g/L))) +
+    theme_bw()
+  
+  print(p1)
+}
+
+```
+
+## Visualize current year at a glance
+
+```{r visualization of current year at a glance}
+flora_heatmap(fp_data = current_df, reservoir = "FCR", year = 2024, site = 50, z = "TotalConc_ugL")
+flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2024, site = 50, z = "TotalConc_ugL")
+
+```
+
+## Visualize a previous year at a glance
+
+```{r visualization of an historic year at a glance}
+flora_heatmap(fp_data = current_df, reservoir = "FCR", year = 2016, site = 50, z = "Bluegreens_ugL")
+flora_heatmap(fp_data = current_df, reservoir = "BVR", year = 2016, site = 50, z = "Bluegreens_ugL")
+flora_heatmap(fp_data = current_df, reservoir = "CCR", year = 2016, site = 50, z = "TotalConc_ugL")
+flora_heatmap(fp_data = current_df, reservoir = "SHR", year = 2016, site = 50, z = "TotalConc_ugL")
+flora_heatmap(fp_data = current_df, reservoir = "GWR", year = 2016, site = 50, z = "TotalConc_ugL")
+```
+
+## Code to check for negative RFUs
+```{r}
+current_df |>
+  select(c('DateTime','Depth_m', 'Reservoir', 'Site', starts_with('RFU'))) |>
+  pivot_longer(RFU_370nm:RFU_610nm, values_to = 'RFU', names_to = 'wavelength') |> 
+  filter(RFU < 0) |> 
+  ggplot(aes(x=DateTime, y= Depth_m, colour = as_factor(wavelength))) + 
+  facet_wrap(Reservoir~Site) + 
+  geom_point()
+
+
+current_df |>
+  select(c('DateTime','Depth_m', 'Reservoir', 'Site', starts_with('RFU'))) |>
+  pivot_longer(RFU_370nm:RFU_610nm, values_to = 'RFU', names_to = 'wavelength') |> 
+  filter(RFU < 0) |> 
+  reframe(.by = wavelength, 
+          n = n())
+
+```
+
+
+## Check to make sure that what is in the maintenance log  was actually removed
+
+### Look at the last rows of the maintenance log 
+
+We want to make sure that our maintenance log actually worked and took out the values or changes those it was supposed to 
+
+```{r Read in the maintenance log and look at the tail, echo=FALSE}
+
+ maint <- read_csv('https://raw.githubusercontent.com/melofton/Reservoirs/refs/heads/master/Data/DataNotYetUploadedToEDI/FluoroProbe/fluoroprobe_maintenance.csv')
+
+# name the data file
+sd <- tail(maint)%>%
+  filter(flag!=7)
+
+# let's see what the tails look like
+print(tail(sd))
+
+knitr::kable((tail(sd)))
+
+```
+#### Check the that the columns have flags 
+
+Look at the first few rows of the data frame and check that the observations after the TIMESTAMP_start are flagged
+
+#### Look at the first 5 rows for that time
+
+```{r Did the maint log work head, echo=FALSE}
+# get the last row of the data file
+last_row <- tail(sd, n=1)
+
+# Get starttime and end time
+### get start and end time of one maintenance event
+    start <- force_tz(as.POSIXct(last_row$TIMESTAMP_start), tzone = "EST")
+    end <- force_tz(as.POSIXct(last_row$TIMESTAMP_end), tzone = "EST")
+    
+    # Get the time of the maintenance
+    if(is.na(end)){
+      # If there the maintenance is on going then the columns will be removed until
+      # and end date is added
+      Time <- current_df |> filter(DateTime >= start) |> select(DateTime)
+      
+    }else if (is.na(start)){
+      # If there is only an end date change columns from beginning of data frame until end date
+      Time <- current_df |> filter(DateTime <= end) |> select(DateTime)
+      
+    }else {
+      Time <- current_df |> filter(DateTime >= start & DateTime <= end) |> select(DateTime)
+    }
+
+
+### Get the names of the columns affected by maintenance
+    colname_start <- last_row$start_parameter
+    colname_end <- last_row$end_parameter
+    
+    # Make list of just the columns we want 
+    
+    test <- colnames(current_df%>%select(Reservoir,DateTime, colname_start, paste0("Flag_",colname_start), colname_end, paste0("Flag_",colname_end)))
+    
+    # Print the head of the table to make sure that data are flagged
+    
+    knitr::kable((head(current_df[current_df$DateTime %in% Time$DateTime, test]))) 
+
+```
+
+#### Look at the last 6 rows for the maintenance time
+
+Make sure the observations are flagged
+
+```{r Print the tails, echo=FALSE}
+
+# Print the tail of the table to make sure that data are flagged
+    
+    knitr::kable(tail(current_df[current_df$DateTime %in% Time$DateTime, test])) 
+
+```
+
+## Make site description file
+
+```{r Make site description file}
+ # These lines of code make the csv of the site descriptions with lat and long
+ # MEL You don't need to run this if you already have the file I believe?
+
+  # # Use Gsheet because you don't need to authenticate it. 
+  # sites <- gsheet::gsheet2tbl("https://docs.google.com/spreadsheets/d/1TlQRdjmi_lzwFfQ6Ovv1CAozmCEkHumDmbg_L4A2e-8/edit#gid=1244423834")
+  # #data<- read_csv("YOUR DATA.csv")# Use this if you read in a csv
+  # data <- current_df #This is the line you need to modify!
+  # trim_sites = function(data,sites){
+  #   data_res_site=data%>% #Create a Reservoir/Site combo column
+  #     mutate(res_site = trimws(paste0(Reservoir,Site)))
+  #   sites_merged = sites%>% #Filter to Sites that are in the dataframe
+  #     mutate(res_site = trimws(paste0(Reservoir,Site)))%>%
+  #     filter(res_site%in%data_res_site$res_site)%>%
+  #     select(-res_site)
+  # }
+  # sites_trimmed = trim_sites(data,sites) 
+  # write.csv(sites_trimmed,"site_descriptions.csv", row.names=F)# Write to file
+```
+
+## Download the QAQC function 
+
+#### We will put it in the folder where the EDI production files are to make sure that it happens and to get the most recent version
+```{r}
+download.file("https://raw.githubusercontent.com/melofton/Reservoirs/master/Scripts/L1_functions/fluoroprobe_create.R", "FluoroProbe_qaqc_2014_2024.R")
+```

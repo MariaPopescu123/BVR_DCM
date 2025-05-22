@@ -1,36 +1,3 @@
-#####PAR calculations####
-CTD <- read.csv("./CTD.csv")
-
-PAR_profiles <- read.csv("PAR_profiles.csv")
-
-final_data0 <- read.csv("./final_data0.csv")
-
-DCM_final<- read.csv("./DCM_final.csv")
-
-
-CTDfiltered <- CTD|>
-  filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(DO_mgL = mean(DO_mgL, na.rm = TRUE),
-            PAR_umolm2s = mean(PAR_umolm2s, na.rm = TRUE), 
-            DOsat_percent = mean(DOsat_percent, na.rm = TRUE),
-            Cond_uScm = mean(Cond_uScm, na.rm = TRUE),
-            ORP_mV = mean(ORP_mV, na.rm = TRUE),
-            pH = mean(pH, na.rm = TRUE))
-
-
-PAR_profiles_filtered <- PAR_profiles |>
-  filter(Reservoir == "BVR", Site == 50)|>
-  mutate(Date = as_date(DateTime))|>
-  group_by(Date, Depth_m)|>
-  summarise(DO_mgL = mean(DO_mgL, na.rm = TRUE),
-            PAR_umolm2s = mean(PAR_umolm2s, na.rm = TRUE), 
-            DOsat_percent = mean(DOsat_percent, na.rm = TRUE),
-            Cond_uScm = mean(Cond_uScm, na.rm = TRUE),
-            ORP_mV = mean(ORP_mV, na.rm = TRUE),
-            pH = mean(pH, na.rm = TRUE))
-
 
 ####to see dates that data is available for
 data_available <- function(data, title_text, variable){
@@ -56,7 +23,6 @@ ggplot(plot_dat, aes(x = DayOfYear, y = as.factor(Year), group = Year)) +
   theme(panel.grid.minor = element_blank())  # Optional: remove minor grid lines
 }
 
-data_available(DCM_final, "DCM_interp_TFe_mgL", DCM_interp_TCa_mgL)
 
 
 
